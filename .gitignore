@@ -1,7 +1,7 @@
 # --- Composer (library package) ---
 vendor
-composer.lock
-composer.phar
+/composer.lock
+/composer.phar
 
 # --- Environment files ---
 /.env
@@ -14,9 +14,9 @@ composer.phar
 /*.code-workspace
 
 # --- PHPUnit / QA caches ---
-.phpunit.result.cache
+/.phpunit.result.cache
 .phpunit.cache/
-.php-cs-fixer.cache
+/.php-cs-fixer.cache
 
 # --- OS / Misc ---
 .DS_Store
