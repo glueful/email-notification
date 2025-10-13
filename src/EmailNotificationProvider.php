@@ -47,7 +47,7 @@ class EmailNotificationProvider implements NotificationExtension
         $coreMailConfig = \config('services.mail') ?? [];
 
         // Load extension-specific configuration (modern location)
-        $extensionConfig = \config('email-notification') ?? [];
+        $extensionConfig = \config('emailnotification') ?? [];
 
         // Transform core mail config to match EmailChannel expectations
         $transformedCoreConfig = $this->transformCoreMailConfig($coreMailConfig);
@@ -260,19 +260,6 @@ class EmailNotificationProvider implements NotificationExtension
     public function isEmailProviderConfigured(): bool
     {
         try {
-            // Check if email notification extension is enabled
-        $extensionsConfig = \config('services.extensions');
-            if (
-                empty($extensionsConfig) ||
-                !is_array($extensionsConfig) ||
-                !isset($extensionsConfig['defaults']['enabled']) ||
-                !is_array($extensionsConfig['defaults']['enabled']) ||
-                !in_array('EmailNotification', $extensionsConfig['defaults']['enabled'])
-            ) {
-                $this->logger->error("EmailNotification extension is not enabled");
-                return false;
-            }
-
             // Use the merged configuration from the provider instead of loading fresh from config
             $mailConfig = $this->config;
             if (empty($mailConfig) || !is_array($mailConfig)) {
