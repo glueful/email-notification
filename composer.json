@@ -52,7 +52,7 @@
             "name": "EmailNotification",
             "displayName": "Email Notification",
             "description": "Provides email notification capabilities using Symfony Mailer",
-            "version": "1.0.0",
+            "version": "1.1.0",
             "icon": "assets/icon.png",
             "galleryBanner": {
                 "color": "#3064D0",
@@ -62,7 +62,7 @@
             "publisher": "glueful-team",
             "provider": "Glueful\\Extensions\\EmailNotification\\EmailNotificationServiceProvider",
             "requires": {
-                "glueful": ">=1.0.0",
+                "glueful": ">=1.5.0",
                 "extensions": []
             }
         }

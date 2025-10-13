@@ -51,12 +51,13 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
             EmailChannel::class => [
                 'class' => EmailChannel::class,
                 'shared' => true,
-                'arguments' => ['%config.email-notification%', '@' . EmailFormatter::class],
+                // No DSL arguments; channel loads config internally and will
+                // construct its own formatter if none provided.
             ],
             EmailNotificationProvider::class => [
                 'class' => EmailNotificationProvider::class,
                 'shared' => true,
-                'arguments' => ['%config.email-notification%'],
+                // Provider merges core + extension config internally; do not inject via %config%.
             ],
         ];
     }
@@ -66,8 +67,8 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
      */
     public function register(): void
     {
-        // Merge extension defaults under the email-notification key
-        $this->mergeConfig('email-notification', require __DIR__ . '/../config/email-notification.php');
+        // Merge extension defaults under the emailnotification key
+        $this->mergeConfig('emailnotification', require __DIR__ . '/../config/emailnotification.php');
     }
 
     /**
@@ -84,6 +85,14 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
 
             $channel = $this->app->get(EmailChannel::class);
             $this->app->get(ChannelManager::class)->registerChannel($channel);
+
+            // If a dispatcher is available via DI, also register provider hooks
+            if ($this->app->has(\Glueful\Notifications\Services\NotificationDispatcher::class)) {
+                $dispatcher = $this->app->get(\Glueful\Notifications\Services\NotificationDispatcher::class);
+                if (method_exists($dispatcher, 'registerExtension')) {
+                    $dispatcher->registerExtension($provider);
+                }
+            }
         }
     }
 
