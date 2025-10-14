@@ -855,7 +855,6 @@ For issues, feature requests, or questions about the EmailNotification extension
 - Create an issue in the repository
 - Consult the [Symfony Mailer documentation](https://symfony.com/doc/current/mailer.html)
 - Check the extension health monitoring for diagnostics
-- Review the migration guide for PHPMailer → Symfony Mailer issues
 
 ---
 

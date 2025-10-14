@@ -65,7 +65,7 @@ class EmailFormatter
         $templateConfig = $mailConfig['templates'] ?? [];
 
         // Get extension configuration
-        $extensionConfig = \config('email-notification', []);
+        $extensionConfig = \config('emailnotification', []);
         $extensionTemplates = $extensionConfig['templates'] ?? [];
 
         // Set primary template path

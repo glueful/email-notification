@@ -28,7 +28,7 @@
             "url": "${GLUEFUL_PATH}"
         }
     ],
-    "homepage": "https://github.com/glueful/extensions/tree/main/extensions/EmailNotification",
+    "homepage": "https://github.com/glueful/email-notification",
     "autoload": {
         "psr-4": {
             "Glueful\\Extensions\\EmailNotification\\": "src/"
@@ -62,7 +62,7 @@
             "publisher": "glueful-team",
             "provider": "Glueful\\Extensions\\EmailNotification\\EmailNotificationServiceProvider",
             "requires": {
-                "glueful": ">=1.5.0",
+                "glueful": ">=1.6.2",
                 "extensions": []
             }
         }
