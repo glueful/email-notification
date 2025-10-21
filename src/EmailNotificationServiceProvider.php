@@ -94,6 +94,19 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
                 }
             }
         }
+
+        // Register extension metadata for CLI and diagnostics
+        try {
+            $this->app->get(\Glueful\Extensions\ExtensionManager::class)->registerMeta(self::class, [
+                'slug' => 'email-notification',
+                'name' => 'EmailNotification',
+                'version' => '1.1.1',
+                'description' => 'Provides email notification capabilities using Symfony Mailer',
+            ]);
+        } catch (\Throwable $e) {
+            // Non-critical
+            error_log('[EmailNotification] Failed to register extension metadata: ' . $e->getMessage());
+        }
     }
 
     /**
