@@ -52,7 +52,7 @@
             "name": "EmailNotification",
             "displayName": "Email Notification",
             "description": "Provides email notification capabilities using Symfony Mailer",
-            "version": "1.1.1",
+            "version": "1.1.2",
             "icon": "assets/icon.png",
             "galleryBanner": {
                 "color": "#3064D0",

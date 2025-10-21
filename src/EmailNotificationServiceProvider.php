@@ -100,7 +100,7 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
             $this->app->get(\Glueful\Extensions\ExtensionManager::class)->registerMeta(self::class, [
                 'slug' => 'email-notification',
                 'name' => 'EmailNotification',
-                'version' => '1.1.1',
+                'version' => '1.1.2',
                 'description' => 'Provides email notification capabilities using Symfony Mailer',
             ]);
         } catch (\Throwable $e) {
