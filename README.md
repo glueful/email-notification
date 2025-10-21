@@ -47,15 +47,49 @@ php glueful extensions:list
 php glueful extensions:info EmailNotification
 ```
 
-### Development enable/disable (optional)
+### Enabling the extension
+
+There are two ways to enable this extension:
+
+1) Manual (recommended; works in all environments)
+
+Edit your project's `config/extensions.php` and add the provider class to the `enabled` list:
+
+```php
+// config/extensions.php
+return [
+    'enabled' => [
+        Glueful\Extensions\EmailNotification\EmailNotificationServiceProvider::class,
+        // other providers...
+    ],
+    // ...
+];
+```
+
+In production, build the cache for deterministic startup:
 
 ```bash
-# Enable the extension locally (updates config/extensions.php)
+php glueful extensions:cache
+```
+
+Verify discovery:
+
+```bash
+php glueful extensions:list
+php glueful extensions:info 'Glueful\\Extensions\\EmailNotification\\EmailNotificationServiceProvider'
+```
+
+2) Development helper (prints instructions)
+
+```bash
+# Dev-only helper: prints how to edit config/extensions.php
 php glueful extensions:enable EmailNotification
 
-# Disable locally
+# To disable, remove/comment the provider entry (or use):
 php glueful extensions:disable EmailNotification
 ```
+
+Note: The enable/disable commands do not modify files in production; always manage providers through `config/extensions.php` and deployment.
 
 ### Provider Bridge Installation
 
