@@ -46,9 +46,14 @@ class EmailChannel implements NotificationChannel
      */
     public function __construct(array $config = [], ?EmailFormatter $formatter = null)
     {
-        // Load default config if not provided
+        // Load config: merge core mail settings with extension-specific config
         if (empty($config)) {
-            $this->config = \config('email-notification') ?? [];
+            // Load core mail configuration from services.php
+            $coreMailConfig = \config('services.mail') ?? [];
+            // Load extension-specific configuration
+            $extensionConfig = \config('emailnotification') ?? [];
+            // Merge: core settings take precedence for mail transport
+            $this->config = array_merge($extensionConfig, $coreMailConfig);
         } else {
             $this->config = $config;
         }
