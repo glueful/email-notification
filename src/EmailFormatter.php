@@ -147,9 +147,13 @@ class EmailFormatter
         $templateData['subject'] = $result['subject'];
         $templateData['title'] = $result['subject']; // Add title as an alias to subject
 
-        // Ensure logo_url is always available, using config default if not provided
+        // Ensure logo_url is always available, using global_variables from config
+        // The global_variables are loaded from services.mail.templates.global_variables
         if (!isset($templateData['logo_url'])) {
-            $templateData['logo_url'] = \config('mail.logo_url', 'https://brand.glueful.com/logo.png');
+            $globalVars = $this->defaultOptions['global_variables'] ?? [];
+            $templateData['logo_url'] = $globalVars['logo_url']
+                ?? \config('services.mail.templates.global_variables.logo_url')
+                ?? 'https://brand.glueful.com/logo.png';
         }
 
         // Add notifiable information

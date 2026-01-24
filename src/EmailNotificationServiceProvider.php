@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Glueful\Extensions\EmailNotification;
 
-use Glueful\Logging\LogManager;
 use Glueful\Notifications\Services\ChannelManager;
 
 /**
@@ -27,7 +26,7 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
      */
     public function getVersion(): string
     {
-        return '1.0.0';
+        return '1.2.1';
     }
 
     /**

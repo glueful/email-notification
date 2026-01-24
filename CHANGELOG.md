@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [1.2.1] - 2026-01-24
+
+### Changed
+- **EmailChannel**: Improved configuration loading to merge core mail settings from `services.mail` with extension-specific config.
+  - Core framework mail settings now take precedence for mail transport configuration.
+  - Allows centralized mail configuration in the main application while extension-specific settings remain customizable.
+- **EmailFormatter**: Updated logo URL resolution to use `global_variables` from config.
+  - Now reads from `services.mail.templates.global_variables.logo_url` for consistency with core framework.
+  - Falls back to extension default if not configured.
+
+### Notes
+- No breaking changes. Existing configurations continue to work.
+- For centralized mail configuration, define settings in `config/services.php` under the `mail` key.
+
 ## [1.2.0] - 2026-01-17
 
 ### Breaking Changes
