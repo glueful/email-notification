@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Glueful\Extensions\EmailNotification;
 
+use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Notifications\Contracts\Notifiable;
 use Glueful\Exceptions\BusinessLogicException;
 
@@ -22,6 +23,8 @@ class EmailFormatter
      */
     private array $templates = [];
 
+    private ApplicationContext $context;
+
     /**
      * @var array Default formatting options
      */
@@ -38,8 +41,9 @@ class EmailFormatter
      * @param array $templates Custom templates
      * @param array $options Formatting options
      */
-    public function __construct(array $templates = [], array $options = [])
+    public function __construct(ApplicationContext $context, array $templates = [], array $options = [])
     {
+        $this->context = $context;
         // Load template configuration from services
         $this->loadTemplateConfiguration();
 
@@ -61,11 +65,11 @@ class EmailFormatter
     protected function loadTemplateConfiguration(): void
     {
         // Get mail configuration
-        $mailConfig = \config('services.mail', []);
+        $mailConfig = config($this->context, 'services.mail', []);
         $templateConfig = $mailConfig['templates'] ?? [];
 
         // Get extension configuration
-        $extensionConfig = \config('emailnotification', []);
+        $extensionConfig = config($this->context, 'emailnotification', []);
         $extensionTemplates = $extensionConfig['templates'] ?? [];
 
         // Set primary template path
@@ -152,7 +156,7 @@ class EmailFormatter
         if (!isset($templateData['logo_url'])) {
             $globalVars = $this->defaultOptions['global_variables'] ?? [];
             $templateData['logo_url'] = $globalVars['logo_url']
-                ?? \config('services.mail.templates.global_variables.logo_url')
+                ?? config($this->context, 'services.mail.templates.global_variables.logo_url')
                 ?? 'https://brand.glueful.com/logo.png';
         }
 

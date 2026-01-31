@@ -26,8 +26,8 @@ The EmailNotification extension provides a modern, enterprise-grade email delive
 
 ## Requirements
 
-- PHP 8.2 or higher with strict typing
-- Glueful Framework 0.29.0 or higher
+- PHP 8.3 or higher with strict typing
+- Glueful Framework 1.22.0 or higher
 - OpenSSL PHP extension
 - Symfony Mailer (included)
 - Composer for provider bridge dependencies

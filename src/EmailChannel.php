@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Glueful\Extensions\EmailNotification;
 
+use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Logging\LogManager;
 use Glueful\Notifications\Contracts\Notifiable;
 use Glueful\Notifications\Contracts\NotificationChannel;
@@ -37,6 +38,7 @@ class EmailChannel implements NotificationChannel
      * @var LogManager Logger instance
      */
     private LogManager $logger;
+    private ApplicationContext $context;
 
     /**
      * EmailChannel constructor
@@ -44,21 +46,22 @@ class EmailChannel implements NotificationChannel
      * @param array $config Email configuration
      * @param EmailFormatter|null $formatter Custom formatter (optional)
      */
-    public function __construct(array $config = [], ?EmailFormatter $formatter = null)
+    public function __construct(ApplicationContext $context, array $config = [], ?EmailFormatter $formatter = null)
     {
+        $this->context = $context;
         // Load config: merge core mail settings with extension-specific config
         if (empty($config)) {
             // Load core mail configuration from services.php
-            $coreMailConfig = \config('services.mail') ?? [];
+            $coreMailConfig = config($this->context, 'services.mail') ?? [];
             // Load extension-specific configuration
-            $extensionConfig = \config('emailnotification') ?? [];
+            $extensionConfig = config($this->context, 'emailnotification') ?? [];
             // Merge: core settings take precedence for mail transport
             $this->config = array_merge($extensionConfig, $coreMailConfig);
         } else {
             $this->config = $config;
         }
 
-        $this->formatter = $formatter ?? new EmailFormatter();
+        $this->formatter = $formatter ?? new EmailFormatter($this->context);
 
         // Initialize logger with email channel
         $this->logger = new LogManager('email');
@@ -434,13 +437,13 @@ class EmailChannel implements NotificationChannel
     {
         try {
             // Check if queue feature is enabled in framework config
-            $queueConfig = \config('queue');
+            $queueConfig = config($this->context, 'queue');
             if (empty($queueConfig) || !($queueConfig['enabled'] ?? true)) {
                 return 0;
             }
 
             // Use the framework's QueueManager to get queue size
-            $container = \app();
+            $container = app($this->context);
             if (!$container->has('Glueful\\Queue\\QueueManager')) {
                 return 0;
             }
