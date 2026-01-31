@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Glueful\Extensions\EmailNotification;
 
+use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Notifications\Services\ChannelManager;
 
 /**
@@ -26,7 +27,7 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
      */
     public function getVersion(): string
     {
-        return '1.2.1';
+        return '1.3.0';
     }
 
     /**
@@ -46,16 +47,19 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
             EmailFormatter::class => [
                 'class' => EmailFormatter::class,
                 'shared' => true,
+                'autowire' => true,
             ],
             EmailChannel::class => [
                 'class' => EmailChannel::class,
                 'shared' => true,
+                'autowire' => true,
                 // No DSL arguments; channel loads config internally and will
                 // construct its own formatter if none provided.
             ],
             EmailNotificationProvider::class => [
                 'class' => EmailNotificationProvider::class,
                 'shared' => true,
+                'autowire' => true,
                 // Provider merges core + extension config internally; do not inject via %config%.
             ],
         ];
@@ -64,7 +68,7 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
     /**
      * Register the extension
      */
-    public function register(): void
+    public function register(ApplicationContext $context): void
     {
         // Merge extension defaults under the emailnotification key
         $this->mergeConfig('emailnotification', require __DIR__ . '/../config/emailnotification.php');
@@ -73,7 +77,7 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
     /**
      * Boot the extension
      */
-    public function boot(): void
+    public function boot(ApplicationContext $context): void
     {
         // Register the email channel with the notification system
         if ($this->app->has(ChannelManager::class)) {
@@ -99,7 +103,7 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
             $this->app->get(\Glueful\Extensions\ExtensionManager::class)->registerMeta(self::class, [
                 'slug' => 'email-notification',
                 'name' => 'EmailNotification',
-                'version' => '1.1.2',
+                'version' => '1.3.0',
                 'description' => 'Provides email notification capabilities using Symfony Mailer',
             ]);
         } catch (\Throwable $e) {

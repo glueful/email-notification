@@ -27,7 +27,7 @@ return [
             'auto_text_version' => true,
         ],
         'extension_variables' => [
-            'extension_version' => '1.0.0',
+            'extension_version' => '1.3.0',
             'powered_by' => 'Glueful EmailNotification Extension',
         ],
     ],

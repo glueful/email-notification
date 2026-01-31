@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [1.3.0] - 2026-01-31
+
+### Changed
+- **Framework Compatibility**: Updated minimum framework requirement to Glueful 1.22.0
+  - Compatible with the new `ApplicationContext` dependency injection pattern
+  - No code changes required in extension - framework handles context propagation
+- **composer.json**: Updated `extra.glueful.requires.glueful` to `>=1.22.0`
+
+### Notes
+- This release ensures compatibility with Glueful Framework 1.22.0's context-based dependency injection
+- All existing functionality remains unchanged
+- Run `composer update` after upgrading
+
 ## [1.2.1] - 2026-01-24
 
 ### Changed

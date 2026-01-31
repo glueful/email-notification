@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Glueful\Extensions\EmailNotification;
 
+use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Logging\LogManager;
 use Glueful\Notifications\Contracts\Notifiable;
 use Glueful\Notifications\Contracts\NotificationExtension;
@@ -35,19 +36,21 @@ class EmailNotificationProvider implements NotificationExtension
      * @var LogManager Logger instance
      */
     private LogManager $logger;
+    private ApplicationContext $context;
 
     /**
      * Provider constructor
      *
      * @param array $config Optional configuration to override defaults
      */
-    public function __construct(array $config = [])
+    public function __construct(ApplicationContext $context, array $config = [])
     {
+        $this->context = $context;
         // Load core mail configuration from services.php
-        $coreMailConfig = \config('services.mail') ?? [];
+        $coreMailConfig = config($this->context, 'services.mail') ?? [];
 
         // Load extension-specific configuration (modern location)
-        $extensionConfig = \config('emailnotification') ?? [];
+        $extensionConfig = config($this->context, 'emailnotification') ?? [];
 
         // Transform core mail config to match EmailChannel expectations
         $transformedCoreConfig = $this->transformCoreMailConfig($coreMailConfig);
@@ -102,10 +105,10 @@ class EmailNotificationProvider implements NotificationExtension
 
         try {
             // Create the formatter
-            $formatter = new EmailFormatter();
+            $formatter = new EmailFormatter($this->context);
 
             // Create the channel
-            $this->channel = new EmailChannel($this->config, $formatter);
+            $this->channel = new EmailChannel($this->context, $this->config, $formatter);
 
             // Check if the channel is available
             if (!$this->channel->isAvailable()) {
@@ -244,7 +247,7 @@ class EmailNotificationProvider implements NotificationExtension
     {
         return [
             'name' => 'Email Notification Channel',
-            'version' => '1.0.0',
+            'version' => '1.3.0',
             'description' => 'Provides email notification capabilities using Symfony Mailer',
             'author' => 'Glueful',
             'channels' => ['email'],
