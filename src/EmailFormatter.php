@@ -302,14 +302,24 @@ class EmailFormatter
      */
     protected function applyLayout(string $content, array $data): string
     {
-        $layoutPath = $this->defaultOptions['templates_path'] . '/partials/layout.html';
+        $partialsDir = $this->defaultOptions['partials_directory'] ?? 'partials';
+        $extension = $this->defaultOptions['extension'] ?? '.html';
 
-        if (file_exists($layoutPath)) {
-            $layout = file_get_contents($layoutPath);
-            if ($layout !== false) {
-                // Add the content to the data for the layout template
-                $layoutData = array_merge($data, ['content' => $content]);
-                return $this->replaceVariables($layout, $layoutData);
+        $searchPaths = [];
+        if (!empty($this->defaultOptions['custom_paths'])) {
+            $searchPaths = array_merge($searchPaths, $this->defaultOptions['custom_paths']);
+        }
+        $searchPaths[] = $this->defaultOptions['templates_path'] . '/' . $partialsDir;
+
+        foreach ($searchPaths as $basePath) {
+            $layoutPath = rtrim($basePath, '/') . '/layout' . $extension;
+            if (file_exists($layoutPath)) {
+                $layout = file_get_contents($layoutPath);
+                if ($layout !== false) {
+                    // Add the content to the data for the layout template
+                    $layoutData = array_merge($data, ['content' => $content]);
+                    return $this->replaceVariables($layout, $layoutData);
+                }
             }
         }
 
@@ -394,14 +404,23 @@ class EmailFormatter
      */
     protected function includePartial(string $partialName, array $data): string
     {
-        $partialsPath = $this->defaultOptions['templates_path'] . '/partials';
-        $partialFile = $partialsPath . '/' . $partialName . '.html';
+        $partialsDir = $this->defaultOptions['partials_directory'] ?? 'partials';
+        $extension = $this->defaultOptions['extension'] ?? '.html';
 
-        if (file_exists($partialFile)) {
-            $partialContent = file_get_contents($partialFile);
-            if ($partialContent !== false) {
-                // Process the partial content (allows nested includes)
-                return $this->replaceVariables($partialContent, $data);
+        $searchPaths = [];
+        if (!empty($this->defaultOptions['custom_paths'])) {
+            $searchPaths = array_merge($searchPaths, $this->defaultOptions['custom_paths']);
+        }
+        $searchPaths[] = $this->defaultOptions['templates_path'] . '/' . $partialsDir;
+
+        foreach ($searchPaths as $basePath) {
+            $partialFile = rtrim($basePath, '/') . '/' . $partialName . $extension;
+            if (file_exists($partialFile)) {
+                $partialContent = file_get_contents($partialFile);
+                if ($partialContent !== false) {
+                    // Process the partial content (allows nested includes)
+                    return $this->replaceVariables($partialContent, $data);
+                }
             }
         }
 
@@ -439,6 +458,7 @@ class EmailFormatter
     private function registerDefaultTemplates(): void
     {
         $templatesPath = $this->defaultOptions['templates_path'];
+        $customPaths = $this->defaultOptions['custom_paths'] ?? [];
 
         // Make sure templates directory exists
         if (!file_exists($templatesPath)) {
@@ -470,6 +490,20 @@ class EmailFormatter
             }
 
             $this->templates[$templateName] = $file;
+        }
+
+        // Allow custom_paths to override or add templates
+        foreach ($customPaths as $customPath) {
+            $customPath = rtrim($customPath, '/');
+            if (!is_dir($customPath)) {
+                continue;
+            }
+
+            $customFiles = glob($customPath . '/*.html');
+            foreach ($customFiles as $file) {
+                $templateName = pathinfo($file, PATHINFO_FILENAME);
+                $this->templates[$templateName] = $file;
+            }
         }
     }
 

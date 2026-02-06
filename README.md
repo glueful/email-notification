@@ -562,6 +562,8 @@ Configure custom templates in `config/services.php`:
        └── footer.html
    ```
 
+> **Override behavior**: if you set `services.mail.templates.custom_paths`, the extension will load templates from those paths first. Only templates or partials you provide are overridden; everything else falls back to the built‑in templates.
+
 2. **Custom Template Example** (`resources/mail/invoice.html`):
    ```html
    <!DOCTYPE html>

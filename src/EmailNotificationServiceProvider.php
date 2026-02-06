@@ -14,6 +14,22 @@ use Glueful\Notifications\Services\ChannelManager;
  */
 class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvider
 {
+    private static ?string $cachedVersion = null;
+
+    /**
+     * Read the extension version from composer.json (cached)
+     */
+    public static function composerVersion(): string
+    {
+        if (self::$cachedVersion === null) {
+            $path = __DIR__ . '/../composer.json';
+            $composer = json_decode(file_get_contents($path), true);
+            self::$cachedVersion = $composer['version'] ?? '0.0.0';
+        }
+
+        return self::$cachedVersion;
+    }
+
     /**
      * Get the extension name
      */
@@ -27,7 +43,7 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
      */
     public function getVersion(): string
     {
-        return '1.3.0';
+        return self::composerVersion();
     }
 
     /**
@@ -71,7 +87,9 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
     public function register(ApplicationContext $context): void
     {
         // Merge extension defaults under the emailnotification key
-        $this->mergeConfig('emailnotification', require __DIR__ . '/../config/emailnotification.php');
+        $config = require __DIR__ . '/../config/emailnotification.php';
+        $config['templates']['extension_variables']['extension_version'] = self::composerVersion();
+        $this->mergeConfig('emailnotification', $config);
     }
 
     /**
@@ -103,7 +121,7 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
             $this->app->get(\Glueful\Extensions\ExtensionManager::class)->registerMeta(self::class, [
                 'slug' => 'email-notification',
                 'name' => 'EmailNotification',
-                'version' => '1.3.0',
+                'version' => self::composerVersion(),
                 'description' => 'Provides email notification capabilities using Symfony Mailer',
             ]);
         } catch (\Throwable $e) {
