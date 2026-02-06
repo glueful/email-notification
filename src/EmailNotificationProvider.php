@@ -247,7 +247,7 @@ class EmailNotificationProvider implements NotificationExtension
     {
         return [
             'name' => 'Email Notification Channel',
-            'version' => '1.3.0',
+            'version' => EmailNotificationServiceProvider::composerVersion(),
             'description' => 'Provides email notification capabilities using Symfony Mailer',
             'author' => 'Glueful',
             'channels' => ['email'],

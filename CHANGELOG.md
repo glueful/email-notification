@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [1.4.0] - 2026-02-06
+
+### Changed
+- **EmailFormatter**: `applyLayout()` now searches `custom_paths` first, then falls back to the default templates path, consistent with partial and template resolution.
+- **EmailFormatter**: `includePartial()` now searches `custom_paths` first, then extension defaults.
+- **EmailFormatter**: `registerDefaultTemplates()` now loads built-in templates first, then overrides/extends from `custom_paths`.
+
+- **Version Management**: Version is now read from `composer.json` at runtime via `EmailNotificationServiceProvider::composerVersion()`.
+  - `getVersion()`, `registerMeta()`, and `NotivaProvider::getExtensionInfo()` all use `composerVersion()` instead of hardcoded strings.
+  - Config `extension_version` is injected dynamically in `register()` from `composer.json`.
+  - Future releases only require updating `composer.json` and `CHANGELOG.md`.
+
+### Notes
+- No breaking changes. Custom paths configured via `services.mail.templates.custom_paths` now consistently override built-in templates, partials, and layouts.
+
 ## [1.3.0] - 2026-01-31
 
 ### Changed
