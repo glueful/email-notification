@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [1.5.0] - 2026-02-09
+
+### Changed
+- **Framework Compatibility**: Updated minimum framework requirement to Glueful 1.30.0 (Diphda release)
+- **Exception Imports**: Migrated from deleted legacy bridge class to modern exception namespace
+  - `Glueful\Exceptions\BusinessLogicException` → `Glueful\Http\Exceptions\Domain\BusinessLogicException` in `EmailFormatter`
+- **composer.json**: Updated `extra.glueful.requires.glueful` to `>=1.30.0`, version bumped to `1.5.0`
+
+### Notes
+- No breaking changes to extension API. Import path change is internal.
+- Requires Glueful Framework 1.30.0+ due to removal of legacy exception bridge classes.
+
 ## [1.4.0] - 2026-02-06
 
 ### Changed
