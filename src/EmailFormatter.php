@@ -6,7 +6,7 @@ namespace Glueful\Extensions\EmailNotification;
 
 use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Notifications\Contracts\Notifiable;
-use Glueful\Exceptions\BusinessLogicException;
+use Glueful\Http\Exceptions\Domain\BusinessLogicException;
 
 /**
  * Email Formatter
