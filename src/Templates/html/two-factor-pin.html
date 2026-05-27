@@ -1,0 +1,14 @@
+{{> header}}
+<div class="message">
+    <p>Hello,</p>
+    <p>Use the verification code below to complete your sign-in:</p>
+
+    <div class="otp-container">
+        <div class="otp-code">{{pin}}</div>
+    </div>
+
+    <p>This code will expire in {{ttl_minutes}} minutes.</p>
+
+    <p>If you didn't try to sign in, you can safely ignore this email — someone may have entered your email address by mistake.</p>
+</div>
+{{> footer}}
