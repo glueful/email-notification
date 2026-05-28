@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [1.6.0] - 2026-05-28
+
+### Added
+- **`two-factor-pin` email template** (`src/Templates/html/two-factor-pin.html`): Renders the 6-digit PIN for the framework's core email-PIN 2FA feature (Glueful Framework 1.45.0 "Fomalhaut"). Mirrors the existing `password-reset`/`verification` templates (`{{> header}}` / `{{> footer}}` partials) and uses the `{{pin}}` and `{{ttl_minutes}}` variables dispatched by `TwoFactorService`.
+
+### Notes
+- No breaking changes; no API changes. Purely additive — the template is only used when paired with Glueful Framework 1.45.0+ and `TWO_FACTOR_ENABLED=true`. Older framework versions simply ignore the unused template.
+- Framework requirement unchanged (`>=1.30.0`).
+
 ## [1.5.0] - 2026-02-09
 
 ### Changed
