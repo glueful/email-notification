@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [1.7.0] - 2026-06-05 — Framework 1.50 Compatibility
+
+### Changed
+
+- **Minimum framework requirement raised to `glueful/framework >=1.50.1`** (`require-dev` pinned to `^1.50.1`).
+- Widened the `symfony/http-client` suggestion to `^6.3 || ^7.0` (the framework ships Symfony 7.4).
+
+### Removed
+
+- **`EmailNotificationListener`** (`src/Listeners/EmailNotificationListener.php`). It implemented `Glueful\Events\EventListener`, an interface **removed** in the framework's current event system (now `EventSubscriberInterface` registered via `EventService::subscribe()`). The listener was never registered (dead code) and broke static analysis against 1.50. If email-event retry/metrics are wanted, wire them as an `EventSubscriberInterface` subscriber.
+
+### Notes
+
+- Compatibility + cleanup release — **no change to the active email-delivery path** (channel registration, formatting, transports all unchanged). Requires Glueful Framework 1.50.1+.
+
 ## [1.6.0] - 2026-05-28
 
 ### Added
