@@ -7,9 +7,10 @@ namespace Glueful\Extensions\EmailNotification;
 use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Logging\LogManager;
 use Glueful\Notifications\Contracts\Notifiable;
-use Glueful\Notifications\Contracts\NotificationChannel;
-use Symfony\Component\Mailer\Mailer;
+use Glueful\Notifications\Contracts\RichNotificationChannel;
+use Glueful\Notifications\Results\NotificationResult;
 use Symfony\Component\Mailer\Transport;
+use Symfony\Component\Mailer\Transport\TransportInterface;
 use Symfony\Component\Mime\Email;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
@@ -20,9 +21,14 @@ use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
  * Implementation of the NotificationChannel interface for sending
  * notifications via email using Symfony Mailer.
  *
+ * Implements {@see RichNotificationChannel}, so the framework dispatcher (1.51.0+) records a
+ * structured {@see NotificationResult} per send — provider message id, error code/message,
+ * retryability, and latency. The legacy {@see self::send()} bool contract is preserved by
+ * delegating to {@see self::sendNotification()}.
+ *
  * @package Glueful\Extensions\EmailNotification
  */
-class EmailChannel implements NotificationChannel
+class EmailChannel implements RichNotificationChannel
 {
     /**
      * @var array Email configuration
@@ -78,7 +84,10 @@ class EmailChannel implements NotificationChannel
     }
 
     /**
-     * Send the notification to the specified notifiable entity
+     * Send the notification to the specified notifiable entity (legacy bool contract).
+     *
+     * Delegates to {@see self::sendNotification()} and collapses the structured result to a
+     * bool, so existing `NotificationChannel::send()` callers are unaffected.
      *
      * @param Notifiable $notifiable The entity receiving the notification
      * @param array $data Notification data including content and metadata
@@ -86,24 +95,52 @@ class EmailChannel implements NotificationChannel
      */
     public function send(Notifiable $notifiable, array $data): bool
     {
+        return $this->sendNotification($notifiable, $data)->success;
+    }
+
+    /**
+     * Send the notification and return a structured {@see NotificationResult}.
+     *
+     * Captures the Symfony provider message id (when the transport returns one) and the send
+     * latency, and maps failure modes to stable error codes: `no_recipient` (non-retryable) and
+     * `transport_exception` (retryable).
+     *
+     * @param Notifiable $notifiable The entity receiving the notification
+     * @param array $data Notification data including content and metadata
+     * @return NotificationResult Structured outcome of the delivery attempt
+     */
+    public function sendNotification(Notifiable $notifiable, array $data): NotificationResult
+    {
         // Get the recipient email address
         $recipientEmail = $notifiable->routeNotificationFor('email');
 
         if (empty($recipientEmail)) {
-            return false;
+            return NotificationResult::failure(
+                errorCode: 'no_recipient',
+                errorMessage: 'Notifiable has no email route address.',
+                retryable: false
+            );
         }
 
         // Format the notification data for email
         $emailData = $this->format($data, $notifiable);
+        $start = microtime(true);
 
         try {
-            $mailer = $this->createMailer();
+            $transport = $this->createTransport();
             $email = $this->createEmail($emailData, $recipientEmail);
 
-            // Send the email
-            $mailer->send($email);
-            return true;
+            // Send via the transport directly so we can surface the provider message id.
+            $sent = $transport->send($email);
+            $latencyMs = (int) round((microtime(true) - $start) * 1000);
+
+            return NotificationResult::success(
+                providerMessageId: $sent?->getMessageId(),
+                latencyMs: $latencyMs
+            );
         } catch (TransportExceptionInterface $e) {
+            $latencyMs = (int) round((microtime(true) - $start) * 1000);
+
             // Log the error using LogManager
             $this->logger->error('Email notification failed: ' . $e->getMessage(), [
                 'notifiable_id' => $notifiable->getNotifiableId(),
@@ -116,7 +153,12 @@ class EmailChannel implements NotificationChannel
                 ]
             ]);
 
-            return false;
+            return NotificationResult::failure(
+                errorCode: 'transport_exception',
+                errorMessage: $e->getMessage(),
+                retryable: true,
+                latencyMs: $latencyMs
+            );
         }
     }
 
@@ -199,12 +241,13 @@ class EmailChannel implements NotificationChannel
     }
 
     /**
-     * Create and configure a Symfony Mailer instance
+     * Build the configured Symfony transport (used directly by {@see self::sendNotification()}
+     * so the returned SentMessage's provider message id can be surfaced).
      *
-     * @return Mailer Configured mailer instance
-     * @throws \Exception If mailer cannot be configured
+     * @return TransportInterface Configured transport instance
+     * @throws \Exception If the mailer configuration is missing
      */
-    private function createMailer(): Mailer
+    private function createTransport(): TransportInterface
     {
         // Get the default mailer configuration
         $defaultMailer = $this->config['default'] ?? 'smtp';
@@ -223,8 +266,7 @@ class EmailChannel implements NotificationChannel
         // Validate configuration based on transport type
         if (!$isProviderBridge && empty($mailerConfig['host'])) {
             // Fallback to null transport for development environments
-            $transport = Transport::fromDsn('null://null');
-            return new Mailer($transport);
+            return Transport::fromDsn('null://null');
         }
 
         // For provider bridges, validate they have required credentials
@@ -233,8 +275,7 @@ class EmailChannel implements NotificationChannel
                              (!empty($mailerConfig['username']) && !empty($mailerConfig['password']));
             if (!$hasCredentials) {
                 // Fallback to null transport if credentials missing
-                $transport = Transport::fromDsn('null://null');
-                return new Mailer($transport);
+                return Transport::fromDsn('null://null');
             }
         }
 
@@ -245,13 +286,11 @@ class EmailChannel implements NotificationChannel
 
             if ($hasValidFailover) {
                 // Use failover transport if configured
-                $transport = \Glueful\Extensions\EmailNotification\TransportFactory::createFailover($this->config);
-            } else {
-                // Use the default transport with enhanced provider bridge support
-                $transport = \Glueful\Extensions\EmailNotification\TransportFactory::create($this->config);
+                return \Glueful\Extensions\EmailNotification\TransportFactory::createFailover($this->config);
             }
 
-            return new Mailer($transport);
+            // Use the default transport with enhanced provider bridge support
+            return \Glueful\Extensions\EmailNotification\TransportFactory::create($this->config);
         } catch (\Exception $e) {
             // Log the error for debugging
             $this->logger->error('Failed to create email transport: ' . $e->getMessage(), [
@@ -260,8 +299,7 @@ class EmailChannel implements NotificationChannel
             ]);
 
             // Fallback to null transport for development
-            $transport = Transport::fromDsn('null://null');
-            return new Mailer($transport);
+            return Transport::fromDsn('null://null');
         }
     }
 

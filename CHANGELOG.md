@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [1.8.0] - 2026-06-06 — Notification Subsystem Refinement (Framework 1.51)
+
+### Added
+
+- **Structured channel results.** `EmailChannel` now implements `Glueful\Notifications\Contracts\RichNotificationChannel` and returns a `NotificationResult` from `sendNotification()` — surfacing the Symfony provider message id, send latency, and stable error codes (`no_recipient` → non-retryable, `transport_exception` → retryable). The framework dispatcher (1.51.0+) records these per channel; the legacy `send(): bool` contract is preserved by delegating to `sendNotification()`.
+
+### Changed
+
+- **Minimum framework requirement raised to `glueful/framework >=1.51.0`** (`require-dev` pinned to `^1.51.0`).
+- **Channel/hook registration migrated to the framework's extension helpers.** `EmailNotificationServiceProvider::boot()` now calls `registerNotificationChannel()` / `registerNotificationExtension()` instead of reaching into the container by hand. This is now the **only** wiring path — framework 1.51.0 stopped hardcoding the `EmailNotification` provider in its notification jobs, so an extension that doesn't register from `boot()` won't auto-wire into the shared dispatcher used by async dispatch/retries.
+- **Retry config moved to the channel-agnostic key.** Framework 1.51.0 reads notification retry options from `notifications.retry` (was `emailnotification.retry`). The provider now merges its `retry` block under `notifications.retry` in `register()`, so existing `MAIL_RETRY_*` env tuning keeps working with no app change.
+
+### Fixed
+
+- **Extension version reporting.** `composerVersion()` read a non-existent top-level `version` key (returning `0.0.0` to the CLI/diagnostics); it now reads the canonical `extra.glueful.version`.
+
+### Notes
+
+- The active email-delivery path (formatting, transports, failover) is unchanged. The rich result is captured by sending through the configured transport directly (equivalent to the prior `Mailer::send()` path, which used no Messenger bus).
+
 ## [1.7.0] - 2026-06-05 — Framework 1.50 Compatibility
 
 ### Changed
