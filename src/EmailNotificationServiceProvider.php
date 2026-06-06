@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Glueful\Extensions\EmailNotification;
 
 use Glueful\Bootstrap\ApplicationContext;
-use Glueful\Notifications\Services\ChannelManager;
 
 /**
  * Email Notification Service Provider
@@ -24,7 +23,10 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
         if (self::$cachedVersion === null) {
             $path = __DIR__ . '/../composer.json';
             $composer = json_decode(file_get_contents($path), true);
-            self::$cachedVersion = $composer['version'] ?? '0.0.0';
+            // Canonical version lives under extra.glueful.version (this is a library package
+            // with no top-level "version" key); fall back to a top-level key then a sentinel.
+            self::$cachedVersion = $composer['extra']['glueful']['version']
+                ?? ($composer['version'] ?? '0.0.0');
         }
 
         return self::$cachedVersion;
@@ -90,6 +92,13 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
         $config = require __DIR__ . '/../config/emailnotification.php';
         $config['templates']['extension_variables']['extension_version'] = self::composerVersion();
         $this->mergeConfig('emailnotification', $config);
+
+        // Framework 1.51.0 moved notification retry config to the channel-agnostic
+        // `notifications.retry` key (formerly read from `emailnotification.retry`). Surface our
+        // retry tuning there so the core retry service/command picks it up unchanged.
+        if (isset($config['retry']) && is_array($config['retry'])) {
+            $this->mergeConfig('notifications', ['retry' => $config['retry']]);
+        }
     }
 
     /**
@@ -97,24 +106,12 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
      */
     public function boot(ApplicationContext $context): void
     {
-        // Register the email channel with the notification system
-        if ($this->app->has(ChannelManager::class)) {
-            $provider = $this->app->get(EmailNotificationProvider::class);
-            if (method_exists($provider, 'initialize')) {
-                $provider->initialize();
-            }
-
-            $channel = $this->app->get(EmailChannel::class);
-            $this->app->get(ChannelManager::class)->registerChannel($channel);
-
-            // If a dispatcher is available via DI, also register provider hooks
-            if ($this->app->has(\Glueful\Notifications\Services\NotificationDispatcher::class)) {
-                $dispatcher = $this->app->get(\Glueful\Notifications\Services\NotificationDispatcher::class);
-                if (method_exists($dispatcher, 'registerExtension')) {
-                    $dispatcher->registerExtension($provider);
-                }
-            }
-        }
+        // Register the email channel and its before/after-send hooks through the framework's
+        // extension helpers (1.51.0+). These resolve the shared container ChannelManager /
+        // NotificationDispatcher and no-op if the notification subsystem isn't present — this is
+        // now the only wiring path (the framework no longer hardcodes this provider).
+        $this->registerNotificationChannel($this->app->get(EmailChannel::class));
+        $this->registerNotificationExtension($this->app->get(EmailNotificationProvider::class));
 
         // Register extension metadata for CLI and diagnostics
         try {
