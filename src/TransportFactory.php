@@ -22,7 +22,7 @@ class TransportFactory
     /**
      * Create a transport based on configuration
      *
-     * @param array $config Mail configuration
+     * @param array<string, mixed> $config Mail configuration
      * @return TransportInterface The configured transport
      * @throws \InvalidArgumentException If transport type is not supported
      */
@@ -43,7 +43,7 @@ class TransportFactory
     /**
      * Auto-detect and suggest available provider bridges
      *
-     * @return array List of available provider bridges
+     * @return array<string, array<string, mixed>> List of available provider bridges
      */
     public static function getAvailableProviders(): array
     {
@@ -76,7 +76,7 @@ class TransportFactory
     /**
      * Create a failover transport with multiple mailers
      *
-     * @param array $config Mail configuration
+     * @param array<string, mixed> $config Mail configuration
      * @return TransportInterface The failover transport
      */
     public static function createFailover(array $config): TransportInterface
@@ -105,7 +105,7 @@ class TransportFactory
     /**
      * Create a round-robin transport for load balancing
      *
-     * @param array $config Mail configuration
+     * @param array<string, mixed> $config Mail configuration
      * @return TransportInterface The round-robin transport
      */
     public static function createRoundRobin(array $config): TransportInterface
@@ -134,7 +134,7 @@ class TransportFactory
     /**
      * Create a transport from a specific configuration
      *
-     * @param array $config Transport configuration
+     * @param array<string, mixed> $config Transport configuration
      * @return TransportInterface The configured transport
      * @throws \InvalidArgumentException If transport type is not supported
      */
@@ -226,7 +226,7 @@ class TransportFactory
     /**
      * Create SMTP transport
      *
-     * @param array $config SMTP configuration
+     * @param array<string, mixed> $config SMTP configuration
      * @return TransportInterface SMTP transport
      */
     private static function createSmtpTransport(array $config): TransportInterface
@@ -267,108 +267,9 @@ class TransportFactory
     }
 
     /**
-     * Create SendGrid transport
-     *
-     * @param array $config SendGrid configuration
-     * @return TransportInterface SendGrid transport
-     */
-    private static function createSendGridTransport(array $config): TransportInterface
-    {
-        if (empty($config['key'])) {
-            throw new \InvalidArgumentException("SendGrid API key is required");
-        }
-
-        return Transport::fromDsn('sendgrid+api://' . $config['key'] . '@default');
-    }
-
-    /**
-     * Create Mailgun transport
-     *
-     * @param array $config Mailgun configuration
-     * @return TransportInterface Mailgun transport
-     */
-    private static function createMailgunTransport(array $config): TransportInterface
-    {
-        if (empty($config['domain']) || empty($config['secret'])) {
-            throw new \InvalidArgumentException("Mailgun domain and secret are required");
-        }
-
-        $endpoint = $config['endpoint'] ?? 'api.mailgun.net';
-        $region = $config['region'] ?? 'us';
-
-        // Use the appropriate endpoint based on region
-        if ($region === 'eu') {
-            $endpoint = 'api.eu.mailgun.net';
-        }
-
-        $dsn = sprintf(
-            'mailgun+https://api:%s@%s?domain=%s',
-            $config['secret'],
-            $endpoint,
-            $config['domain']
-        );
-
-        return Transport::fromDsn($dsn);
-    }
-
-    /**
-     * Create Amazon SES transport
-     *
-     * @param array $config SES configuration
-     * @return TransportInterface SES transport
-     */
-    private static function createSesTransport(array $config): TransportInterface
-    {
-        if (empty($config['key']) || empty($config['secret'])) {
-            throw new \InvalidArgumentException("AWS access key and secret are required");
-        }
-
-        $region = $config['region'] ?? 'us-east-1';
-
-        $dsn = sprintf(
-            'ses+https://%s:%s@default?region=%s',
-            urlencode($config['key']),
-            urlencode($config['secret']),
-            $region
-        );
-
-        return Transport::fromDsn($dsn);
-    }
-
-    /**
-     * Create Postmark transport
-     *
-     * @param array $config Postmark configuration
-     * @return TransportInterface Postmark transport
-     */
-    private static function createPostmarkTransport(array $config): TransportInterface
-    {
-        if (empty($config['token'])) {
-            throw new \InvalidArgumentException("Postmark server token is required");
-        }
-
-        return Transport::fromDsn('postmark+api://' . $config['token'] . '@default');
-    }
-
-    /**
-     * Create Mandrill transport
-     *
-     * @param array $config Mandrill configuration
-     * @return TransportInterface Mandrill transport
-     */
-    private static function createMandrillTransport(array $config): TransportInterface
-    {
-        if (empty($config['key'])) {
-            throw new \InvalidArgumentException("Mandrill API key is required");
-        }
-
-        return Transport::fromDsn('mandrill+api://' . $config['key'] . '@default');
-    }
-
-    /**
      * Create Brevo API transport
      *
-     * @param array $config Brevo configuration
+     * @param array<string, mixed> $config Brevo configuration
      * @return TransportInterface Brevo transport
      */
     private static function createBrevoApiTransport(array $config): TransportInterface
@@ -383,7 +284,7 @@ class TransportFactory
     /**
      * Create Brevo SMTP transport
      *
-     * @param array $config Brevo SMTP configuration
+     * @param array<string, mixed> $config Brevo SMTP configuration
      * @return TransportInterface Brevo SMTP transport
      */
     private static function createBrevoSmtpTransport(array $config): TransportInterface
@@ -401,7 +302,7 @@ class TransportFactory
     /**
      * Create SendGrid API transport
      *
-     * @param array $config SendGrid configuration
+     * @param array<string, mixed> $config SendGrid configuration
      * @return TransportInterface SendGrid transport
      */
     private static function createSendGridApiTransport(array $config): TransportInterface
@@ -416,7 +317,7 @@ class TransportFactory
     /**
      * Create Mailgun API transport
      *
-     * @param array $config Mailgun configuration
+     * @param array<string, mixed> $config Mailgun configuration
      * @return TransportInterface Mailgun transport
      */
     private static function createMailgunApiTransport(array $config): TransportInterface
@@ -438,7 +339,7 @@ class TransportFactory
     /**
      * Create Amazon SES API transport
      *
-     * @param array $config SES configuration
+     * @param array<string, mixed> $config SES configuration
      * @return TransportInterface SES transport
      */
     private static function createSesApiTransport(array $config): TransportInterface
@@ -458,7 +359,7 @@ class TransportFactory
     /**
      * Create Postmark API transport
      *
-     * @param array $config Postmark configuration
+     * @param array<string, mixed> $config Postmark configuration
      * @return TransportInterface Postmark transport
      */
     private static function createPostmarkApiTransport(array $config): TransportInterface

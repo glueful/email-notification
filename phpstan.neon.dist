@@ -1,0 +1,12 @@
+parameters:
+    level: 8
+    paths:
+        - src
+    ignoreErrors:
+        # twig/twig is an optional `suggest` dependency, used only by EnhancedEmailFormatter
+        # (gated behind explicit enableTwig opt-in). It is intentionally not installed in this
+        # package, so do not fail analysis on its class references.
+        -
+            message: '#Twig#'
+            path: src/EnhancedEmailFormatter.php
+    reportUnmatchedIgnoredErrors: false

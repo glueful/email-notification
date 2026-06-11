@@ -2,9 +2,9 @@
 
 ## Overview
 
-The EmailNotification extension provides a modern, enterprise-grade email delivery system for the Glueful Framework's notification system. Built on **Symfony Mailer**, it features robust multi-provider support, advanced queue integration, comprehensive monitoring, and extensible transport architecture.
+The EmailNotification extension provides a modern email delivery system for the Glueful Framework's notification system. Built on **Symfony Mailer**, it features robust multi-provider support, queue integration, and an extensible transport architecture.
 
-> **🚀 Version 1.0.0**: Complete migration from PHPMailer to Symfony Mailer with enhanced performance, reliability, and modern provider bridge support.
+> Built on Symfony Mailer with modern provider-bridge support. Implements the framework's notification channel contract (`RichNotificationChannel`) with structured `NotificationResult`s.
 
 > Deprecation notice
 >
@@ -20,14 +20,13 @@ The EmailNotification extension provides a modern, enterprise-grade email delive
 - ✅ **Failover & Load Balancing** - Multiple transport support with automatic failover
 - ✅ **Extensible Architecture** - Support for any Symfony Mailer provider bridge
 - ✅ **Advanced Template System** - Responsive templates with variable substitution and conditional logic
-- ✅ **Performance Monitoring** - Rate limiting, metrics collection, and resource tracking
-- ✅ **Enhanced Security** - Modern encryption, validation, and provider isolation
+- ✅ **Recipient Domain Policy** - Allow-list / block-list enforcement on recipient domains before send
 - ✅ **Developer Experience** - Clear error messages, debugging tools, and type safety
 
 ## Requirements
 
 - PHP 8.3 or higher with strict typing
-- Glueful Framework 1.22.0 or higher
+- Glueful Framework 1.51.0 or higher
 - OpenSSL PHP extension
 - Symfony Mailer (included)
 - Composer for provider bridge dependencies
@@ -680,40 +679,32 @@ Create a base layout in `partials/layout.html`:
 
 Templates without `<!DOCTYPE html>` automatically use this layout.
 
-## Performance Features
-
-### Rate Limiting
-
-Protect against email abuse with configurable rate limits:
-
-```env
-EMAIL_RATE_LIMIT_PER_MINUTE=60    # Max 60 emails per minute
-EMAIL_RATE_LIMIT_PER_HOUR=1000    # Max 1000 emails per hour
-EMAIL_RATE_LIMIT_PER_DAY=10000    # Max 10000 emails per day
-```
-
-### Connection Optimization
-
-- **Provider Bridges**: Direct API integrations for better performance
-- **Connection Pooling**: Efficient SMTP connection management
-- **Batch Processing**: Optimized for high-volume sending
-- **Memory Management**: Proper object lifecycle management
-
 ## Security Features
 
-### Modern Security Standards
+### Recipient Domain Policy
 
-- **Symfony Mailer Security**: Built on Symfony's security standards
-- **Provider Isolation**: Isolated transport creation prevents configuration leakage
-- **Input Validation**: Enhanced validation for transport configurations
-- **Error Sanitization**: Sanitized error messages to prevent credential exposure
-
-### SSL/TLS Encryption
+`EmailChannel` enforces an optional recipient-domain policy **before** sending. A recipient
+whose domain is disallowed yields a non-retryable `NotificationResult` failure
+(`blocked_domain`) and no mail is sent.
 
 ```env
-MAIL_ENCRYPTION=tls        # Enable TLS encryption
-EMAIL_SSL_VERIFY=true      # Verify SSL certificates
+# Denylist: a matching recipient domain is rejected (comma-separated)
+MAIL_BLOCKED_DOMAINS=example.com,spam.test
+
+# Allowlist: when set, ONLY matching recipient domains are permitted (comma-separated)
+MAIL_ALLOWED_DOMAINS=yourcompany.com,partner.com
 ```
+
+With neither set, all recipient domains are allowed. Both also accept an array in
+`config/emailnotification.php` under `security.allowed_domains` / `security.blocked_domains`.
+
+### Transport security
+
+- **Symfony Mailer**: transport built on Symfony's mailer security.
+- **Provider isolation**: isolated transport creation per send.
+- **Error sanitization**: send failures return a structured `NotificationResult` (error code +
+  message) and never throw SMTP credentials into the dispatcher; failures are logged via
+  `LogManager`.
 
 ## Monitoring and Debugging
 

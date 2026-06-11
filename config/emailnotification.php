@@ -32,14 +32,6 @@ return [
         ],
     ],
 
-    // Email sending limits
-    'rate_limit' => [
-        'enabled' => env('MAIL_RATE_LIMIT_ENABLED', true),
-        'max_per_minute' => env('MAIL_RATE_LIMIT_PER_MINUTE', 10),
-        'max_per_hour' => env('MAIL_RATE_LIMIT_PER_HOUR', 100),
-        'max_per_day' => env('MAIL_RATE_LIMIT_PER_DAY', 1000),
-    ],
-
     // Queue integration
     'queue' => [
         'enabled' => env('MAIL_QUEUE_ENABLED', true),
@@ -54,9 +46,6 @@ return [
     // Event handling
     'events' => [
         'enabled' => env('MAIL_EVENTS_ENABLED', true),
-        'listeners' => [
-            'Glueful\\Extensions\\EmailNotification\\Listeners\\EmailNotificationListener'
-        ],
         'fire_events' => [
             'email.sending' => true,
             'email.sent' => true,
@@ -73,14 +62,6 @@ return [
         'jitter' => env('MAIL_RETRY_JITTER', true),
     ],
 
-    // Monitoring and analytics
-    'monitoring' => [
-        'enabled' => env('MAIL_MONITORING_ENABLED', true),
-        'track_opens' => env('MAIL_TRACK_OPENS', false),
-        'track_clicks' => env('MAIL_TRACK_CLICKS', false),
-        'bounce_handling' => env('MAIL_BOUNCE_HANDLING', true),
-    ],
-
     // Debug and development
     'debug' => [
         'enabled' => env('MAIL_DEBUG', false),
@@ -90,18 +71,12 @@ return [
     ],
 
     // Security features
+    // Recipient domain policy, enforced by EmailChannel before sending:
+    //   - blocked_domains: denylist (a matching recipient domain is rejected)
+    //   - allowed_domains: allowlist (when set, only matching recipient domains pass)
+    // Each accepts a comma-separated string (env) or an array.
     'security' => [
-        'verify_ssl' => env('MAIL_VERIFY_SSL', true),
         'allowed_domains' => env('MAIL_ALLOWED_DOMAINS', null),
         'blocked_domains' => env('MAIL_BLOCKED_DOMAINS', null),
-        'content_scanning' => env('MAIL_CONTENT_SCANNING', false),
-    ],
-
-    // Performance
-    'performance' => [
-        'connection_pooling' => env('MAIL_CONNECTION_POOLING', false),
-        'batch_sending' => env('MAIL_BATCH_SENDING', true),
-        'batch_size' => env('MAIL_BATCH_SIZE', 50),
-        'concurrent_connections' => env('MAIL_CONCURRENT_CONNECTIONS', 3),
     ],
 ];

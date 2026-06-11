@@ -31,7 +31,7 @@ use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 class EmailChannel implements RichNotificationChannel
 {
     /**
-     * @var array Email configuration
+     * @var array<string, mixed> Email configuration
      */
     private array $config;
 
@@ -49,7 +49,7 @@ class EmailChannel implements RichNotificationChannel
     /**
      * EmailChannel constructor
      *
-     * @param array $config Email configuration
+     * @param array<string, mixed> $config Email configuration
      * @param EmailFormatter|null $formatter Custom formatter (optional)
      */
     public function __construct(ApplicationContext $context, array $config = [], ?EmailFormatter $formatter = null)
@@ -67,7 +67,10 @@ class EmailChannel implements RichNotificationChannel
             $this->config = $config;
         }
 
-        $this->formatter = $formatter ?? new EmailFormatter($this->context);
+        // Default to the enhanced formatter so the createEmail() enhanced-template path
+        // (priority, embedded images, attachments, custom headers) is available. Twig stays
+        // opt-in (disabled by default), so this needs no optional twig/twig dependency.
+        $this->formatter = $formatter ?? new EnhancedEmailFormatter($this->context);
 
         // Initialize logger with email channel
         $this->logger = new LogManager('email');
@@ -90,7 +93,7 @@ class EmailChannel implements RichNotificationChannel
      * bool, so existing `NotificationChannel::send()` callers are unaffected.
      *
      * @param Notifiable $notifiable The entity receiving the notification
-     * @param array $data Notification data including content and metadata
+     * @param array<string, mixed> $data Notification data including content and metadata
      * @return bool Whether the notification was sent successfully
      */
     public function send(Notifiable $notifiable, array $data): bool
@@ -106,7 +109,7 @@ class EmailChannel implements RichNotificationChannel
      * `transport_exception` (retryable).
      *
      * @param Notifiable $notifiable The entity receiving the notification
-     * @param array $data Notification data including content and metadata
+     * @param array<string, mixed> $data Notification data including content and metadata
      * @return NotificationResult Structured outcome of the delivery attempt
      */
     public function sendNotification(Notifiable $notifiable, array $data): NotificationResult
@@ -118,6 +121,16 @@ class EmailChannel implements RichNotificationChannel
             return NotificationResult::failure(
                 errorCode: 'no_recipient',
                 errorMessage: 'Notifiable has no email route address.',
+                retryable: false
+            );
+        }
+
+        // Enforce the configured domain policy (security.allowed_domains / blocked_domains)
+        // before doing any work -- a disallowed recipient is a permanent policy failure.
+        if (!$this->isRecipientDomainAllowed((string) $recipientEmail)) {
+            return NotificationResult::failure(
+                errorCode: 'blocked_domain',
+                errorMessage: 'Recipient domain is not permitted by the mail security policy.',
                 retryable: false
             );
         }
@@ -163,11 +176,66 @@ class EmailChannel implements RichNotificationChannel
     }
 
     /**
+     * Whether the recipient's domain is permitted by the configured mail security policy.
+     *
+     * `security.blocked_domains` is a denylist (a matching domain is rejected);
+     * `security.allowed_domains`, when non-empty, is an allowlist (only matching domains pass).
+     * Both accept a comma-separated string or an array. With neither configured, all domains
+     * are allowed (the prior behavior).
+     */
+    private function isRecipientDomainAllowed(string $email): bool
+    {
+        $at = strrpos($email, '@');
+        $domain = $at !== false ? strtolower(substr($email, $at + 1)) : '';
+
+        /** @var array<string, mixed> $security */
+        $security = is_array($this->config['security'] ?? null) ? $this->config['security'] : [];
+
+        $blocked = $this->parseDomainList($security['blocked_domains'] ?? null);
+        if ($domain !== '' && in_array($domain, $blocked, true)) {
+            return false;
+        }
+
+        $allowed = $this->parseDomainList($security['allowed_domains'] ?? null);
+        if ($allowed !== [] && ($domain === '' || !in_array($domain, $allowed, true))) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Normalize a domain list from a comma-separated string or array into lower-cased entries.
+     *
+     * @return array<int, string>
+     */
+    private function parseDomainList(mixed $value): array
+    {
+        if (is_array($value)) {
+            $items = $value;
+        } elseif (is_string($value) && $value !== '') {
+            $items = explode(',', $value);
+        } else {
+            return [];
+        }
+
+        $out = [];
+        foreach ($items as $item) {
+            $domain = strtolower(trim((string) $item));
+            if ($domain !== '') {
+                $out[] = $domain;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * Format the notification data for this channel
      *
-     * @param array $data The raw notification data
+     * @param array<string, mixed> $data The raw notification data
      * @param Notifiable $notifiable The entity receiving the notification
-     * @return array The formatted notification data
+     * @return array<string, mixed> The formatted notification data
      */
     public function format(array $data, Notifiable $notifiable): array
     {
@@ -221,7 +289,7 @@ class EmailChannel implements RichNotificationChannel
     /**
      * Get channel-specific configuration
      *
-     * @return array The channel configuration
+     * @return array<string, mixed> The channel configuration
      */
     public function getConfig(): array
     {
@@ -231,7 +299,7 @@ class EmailChannel implements RichNotificationChannel
     /**
      * Set channel-specific configuration
      *
-     * @param array $config The new configuration
+     * @param array<string, mixed> $config The new configuration
      * @return self
      */
     public function setConfig(array $config): self
@@ -306,7 +374,7 @@ class EmailChannel implements RichNotificationChannel
     /**
      * Create a Symfony Email object from email data
      *
-     * @param array $data The email data
+     * @param array<string, mixed> $data The email data
      * @param string $recipientEmail The primary recipient email
      * @return Email Configured email object
      */
