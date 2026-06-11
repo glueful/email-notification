@@ -6,6 +6,31 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Added
+
+- **Recipient domain policy.** `EmailChannel` now enforces an optional allow-list /
+  block-list on the recipient's domain (`security.allowed_domains` / `security.blocked_domains`,
+  each a comma-separated string or array) **before** sending. A disallowed recipient yields a
+  non-retryable `NotificationResult` failure (`blocked_domain`) and no mail is sent. With
+  neither configured, all domains are allowed (prior behavior).
+- **A test suite** (the extension previously had none). Covers the domain policy
+  (allow/block/no-policy/no-recipient), `sendNotification()` success/failure result mapping via
+  Symfony's null transport, `TransportFactory` DSN/transport building, and `EnhancedEmailFormatter`
+  instantiation. Adds `phpunit.xml`.
+
+### Changed
+
+- **`EnhancedEmailFormatter` is now the default formatter** for `EmailChannel` (and registered
+  in `services()`), so the enhanced-template path (priority, embedded images, attachments,
+  custom headers) is actually reachable. Twig remains opt-in (off by default), so no
+  optional `twig/twig` dependency is required.
+- **Config honesty.** Removed config blocks that were defined but never enforced anywhere
+  (`rate_limit.*`, `monitoring.*`, `performance.*`, `security.content_scanning`/`verify_ssl`,
+  and the dead `events.listeners` entry pointing at a removed class). The README's
+  corresponding "Performance Monitoring / Rate limiting" and over-broad "Enhanced Security"
+  claims were removed/replaced with the real recipient-domain-policy docs; fixed the stale
+  "Version 1.0.0 / Glueful 1.22.0" header.
+
 ### Fixed
 
 - **`EnhancedEmailFormatter` was uninstantiable.** Its constructor called

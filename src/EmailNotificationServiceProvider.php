@@ -67,6 +67,11 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
                 'shared' => true,
                 'autowire' => true,
             ],
+            EnhancedEmailFormatter::class => [
+                'class' => EnhancedEmailFormatter::class,
+                'shared' => true,
+                'autowire' => true,
+            ],
             EmailChannel::class => [
                 'class' => EmailChannel::class,
                 'shared' => true,

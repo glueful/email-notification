@@ -67,7 +67,10 @@ class EmailChannel implements RichNotificationChannel
             $this->config = $config;
         }
 
-        $this->formatter = $formatter ?? new EmailFormatter($this->context);
+        // Default to the enhanced formatter so the createEmail() enhanced-template path
+        // (priority, embedded images, attachments, custom headers) is available. Twig stays
+        // opt-in (disabled by default), so this needs no optional twig/twig dependency.
+        $this->formatter = $formatter ?? new EnhancedEmailFormatter($this->context);
 
         // Initialize logger with email channel
         $this->logger = new LogManager('email');
@@ -122,6 +125,16 @@ class EmailChannel implements RichNotificationChannel
             );
         }
 
+        // Enforce the configured domain policy (security.allowed_domains / blocked_domains)
+        // before doing any work -- a disallowed recipient is a permanent policy failure.
+        if (!$this->isRecipientDomainAllowed((string) $recipientEmail)) {
+            return NotificationResult::failure(
+                errorCode: 'blocked_domain',
+                errorMessage: 'Recipient domain is not permitted by the mail security policy.',
+                retryable: false
+            );
+        }
+
         // Format the notification data for email
         $emailData = $this->format($data, $notifiable);
         $start = microtime(true);
@@ -160,6 +173,61 @@ class EmailChannel implements RichNotificationChannel
                 latencyMs: $latencyMs
             );
         }
+    }
+
+    /**
+     * Whether the recipient's domain is permitted by the configured mail security policy.
+     *
+     * `security.blocked_domains` is a denylist (a matching domain is rejected);
+     * `security.allowed_domains`, when non-empty, is an allowlist (only matching domains pass).
+     * Both accept a comma-separated string or an array. With neither configured, all domains
+     * are allowed (the prior behavior).
+     */
+    private function isRecipientDomainAllowed(string $email): bool
+    {
+        $at = strrpos($email, '@');
+        $domain = $at !== false ? strtolower(substr($email, $at + 1)) : '';
+
+        /** @var array<string, mixed> $security */
+        $security = is_array($this->config['security'] ?? null) ? $this->config['security'] : [];
+
+        $blocked = $this->parseDomainList($security['blocked_domains'] ?? null);
+        if ($domain !== '' && in_array($domain, $blocked, true)) {
+            return false;
+        }
+
+        $allowed = $this->parseDomainList($security['allowed_domains'] ?? null);
+        if ($allowed !== [] && ($domain === '' || !in_array($domain, $allowed, true))) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Normalize a domain list from a comma-separated string or array into lower-cased entries.
+     *
+     * @return array<int, string>
+     */
+    private function parseDomainList(mixed $value): array
+    {
+        if (is_array($value)) {
+            $items = $value;
+        } elseif (is_string($value) && $value !== '') {
+            $items = explode(',', $value);
+        } else {
+            return [];
+        }
+
+        $out = [];
+        foreach ($items as $item) {
+            $domain = strtolower(trim((string) $item));
+            if ($domain !== '') {
+                $out[] = $domain;
+            }
+        }
+
+        return $out;
     }
 
     /**
