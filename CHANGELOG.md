@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-06-11 — Recipient Domain Policy & Hardening (Framework 1.51)
+
 ### Added
 
 - **Recipient domain policy.** `EmailChannel` now enforces an optional allow-list /
@@ -39,10 +41,25 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
   enhanced-template path (priority, embedded images, attachments, custom headers) could never
   run. The constructor now accepts and forwards `ApplicationContext`, and exposes
   `isUsingTwig()` (the Twig-enabled flag was previously write-only).
-- **PHPStan (`composer run analyze`) is green again** (was 16 errors): fixed the constructor
+- **PHPStan raised to level 8 and green** (was 16 errors, then level 5): fixed the constructor
   type error, removed an unreachable statement in `EmailFormatter::renderTemplate()` and five
-  dead duplicate transport methods in `TransportFactory`, and added a `phpstan.neon.dist`
-  (level 5) that ignores the optional `twig/twig` (`suggest`) class references.
+  dead duplicate transport methods in `TransportFactory`, and added a `phpstan.neon.dist` that
+  ignores the optional `twig/twig` (`suggest`) class references. Reaching level 8 also added
+  array-shape (`array<string, mixed>` / `array<int, string>`) annotations across all public
+  signatures and fixed real robustness gaps surfaced by levels 7–8: `preg_replace`/
+  `preg_replace_callback` returning `null` on a backtrack-limit failure (now falls back to the
+  unmodified input instead of producing a `null` string), `glob()` returning `false` in
+  `EmailFormatter::registerDefaultTemplates()` (now `?: []` so the `foreach` is always iterable),
+  and `file_get_contents()` returning `false` before `json_decode()` in `composerVersion()`.
+- **Debug-log gate never fired.** `process()` checked `!empty($this->config['debug'])`, but
+  `debug` is configured as an array (`['enabled' => false, ...]`), so the check was always
+  truthy and the debug log path ran regardless of the flag. Now keys off
+  `$this->config['debug']['enabled']`.
+- **`getMetrics()` bypassed the container.** It built a `new \Glueful\Database\Connection()`
+  directly instead of resolving from the application context; now uses
+  `app($this->context, Connection::class)` so the pooled/configured connection is reused.
+- **Code-style standard switched from the deprecated `Squiz` to `PSR12`** (`composer phpcs` /
+  `phpcbf`), matching the framework and the other extensions; `src/` is clean under PSR-12.
 
 ## [1.8.0] - 2026-06-06 — Notification Subsystem Refinement (Framework 1.51)
 
