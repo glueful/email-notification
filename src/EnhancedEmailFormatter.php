@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Glueful\Extensions\EmailNotification;
 
+use Glueful\Bootstrap\ApplicationContext;
 use Symfony\Component\Mime\Email;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
@@ -31,13 +32,18 @@ class EnhancedEmailFormatter extends EmailFormatter
     /**
      * EnhancedEmailFormatter constructor
      *
+     * @param ApplicationContext $context Application context (required by the base formatter)
      * @param array $templates Custom templates
      * @param array $options Formatting options
      * @param bool $enableTwig Whether to enable Twig support
      */
-    public function __construct(array $templates = [], array $options = [], bool $enableTwig = false)
-    {
-        parent::__construct($templates, $options);
+    public function __construct(
+        ApplicationContext $context,
+        array $templates = [],
+        array $options = [],
+        bool $enableTwig = false
+    ) {
+        parent::__construct($context, $templates, $options);
 
         if ($enableTwig) {
             $this->initializeTwig();
@@ -193,5 +199,13 @@ class EnhancedEmailFormatter extends EmailFormatter
     public function getTwig(): ?Environment
     {
         return $this->twig;
+    }
+
+    /**
+     * Whether Twig rendering is currently enabled.
+     */
+    public function isUsingTwig(): bool
+    {
+        return $this->useTwig && $this->twig !== null;
     }
 }

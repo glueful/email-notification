@@ -259,38 +259,33 @@ class EmailFormatter
             return $rendered;
         }
 
-        // If template is a structured array with header, body, footer
-        if (is_array($template)) {
-            $html = '';
+        // Otherwise $template is a structured array with header, body, footer
+        // (the string forms returned above).
+        $html = '';
 
-            // Add header if requested
-            if ($this->defaultOptions['include_header'] && isset($template['header'])) {
-                $html .= $this->replaceVariables($template['header'], $data);
-            }
-
-            // Add body (required)
-            if (isset($template['body'])) {
-                $html .= $this->replaceVariables($template['body'], $data);
-            } else {
-                error_log("EmailFormatter: Template body is missing!");
-            }
-
-            // Add footer if requested
-            if ($this->defaultOptions['include_footer'] && isset($template['footer'])) {
-                $html .= $this->replaceVariables($template['footer'], $data);
-            }
-
-            // Apply the layout if it's not already a complete HTML document
-            if (strpos($html, '<!DOCTYPE html>') === false) {
-                $html = $this->applyLayout($html, $data);
-            }
-
-            return $html;
+        // Add header if requested
+        if ($this->defaultOptions['include_header'] && isset($template['header'])) {
+            $html .= $this->replaceVariables($template['header'], $data);
         }
 
-        // Fallback: return a simple message
-        $fallback = '<p>Notification: ' . ($data['subject'] ?? 'No subject') . '</p>';
-        return $this->applyLayout($fallback, $data);
+        // Add body (required)
+        if (isset($template['body'])) {
+            $html .= $this->replaceVariables($template['body'], $data);
+        } else {
+            error_log("EmailFormatter: Template body is missing!");
+        }
+
+        // Add footer if requested
+        if ($this->defaultOptions['include_footer'] && isset($template['footer'])) {
+            $html .= $this->replaceVariables($template['footer'], $data);
+        }
+
+        // Apply the layout if it's not already a complete HTML document
+        if (strpos($html, '<!DOCTYPE html>') === false) {
+            $html = $this->applyLayout($html, $data);
+        }
+
+        return $html;
     }
 
     /**

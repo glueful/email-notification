@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [Unreleased]
+
+### Fixed
+
+- **`EnhancedEmailFormatter` was uninstantiable.** Its constructor called
+  `parent::__construct($templates, $options)`, but the base `EmailFormatter` requires an
+  `ApplicationContext` first -- so constructing it threw a `TypeError`, and the `EmailChannel`
+  enhanced-template path (priority, embedded images, attachments, custom headers) could never
+  run. The constructor now accepts and forwards `ApplicationContext`, and exposes
+  `isUsingTwig()` (the Twig-enabled flag was previously write-only).
+- **PHPStan (`composer run analyze`) is green again** (was 16 errors): fixed the constructor
+  type error, removed an unreachable statement in `EmailFormatter::renderTemplate()` and five
+  dead duplicate transport methods in `TransportFactory`, and added a `phpstan.neon.dist`
+  (level 5) that ignores the optional `twig/twig` (`suggest`) class references.
+
 ## [1.8.0] - 2026-06-06 — Notification Subsystem Refinement (Framework 1.51)
 
 ### Added
