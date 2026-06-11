@@ -31,7 +31,7 @@ use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 class EmailChannel implements RichNotificationChannel
 {
     /**
-     * @var array Email configuration
+     * @var array<string, mixed> Email configuration
      */
     private array $config;
 
@@ -49,7 +49,7 @@ class EmailChannel implements RichNotificationChannel
     /**
      * EmailChannel constructor
      *
-     * @param array $config Email configuration
+     * @param array<string, mixed> $config Email configuration
      * @param EmailFormatter|null $formatter Custom formatter (optional)
      */
     public function __construct(ApplicationContext $context, array $config = [], ?EmailFormatter $formatter = null)
@@ -93,7 +93,7 @@ class EmailChannel implements RichNotificationChannel
      * bool, so existing `NotificationChannel::send()` callers are unaffected.
      *
      * @param Notifiable $notifiable The entity receiving the notification
-     * @param array $data Notification data including content and metadata
+     * @param array<string, mixed> $data Notification data including content and metadata
      * @return bool Whether the notification was sent successfully
      */
     public function send(Notifiable $notifiable, array $data): bool
@@ -109,7 +109,7 @@ class EmailChannel implements RichNotificationChannel
      * `transport_exception` (retryable).
      *
      * @param Notifiable $notifiable The entity receiving the notification
-     * @param array $data Notification data including content and metadata
+     * @param array<string, mixed> $data Notification data including content and metadata
      * @return NotificationResult Structured outcome of the delivery attempt
      */
     public function sendNotification(Notifiable $notifiable, array $data): NotificationResult
@@ -233,9 +233,9 @@ class EmailChannel implements RichNotificationChannel
     /**
      * Format the notification data for this channel
      *
-     * @param array $data The raw notification data
+     * @param array<string, mixed> $data The raw notification data
      * @param Notifiable $notifiable The entity receiving the notification
-     * @return array The formatted notification data
+     * @return array<string, mixed> The formatted notification data
      */
     public function format(array $data, Notifiable $notifiable): array
     {
@@ -289,7 +289,7 @@ class EmailChannel implements RichNotificationChannel
     /**
      * Get channel-specific configuration
      *
-     * @return array The channel configuration
+     * @return array<string, mixed> The channel configuration
      */
     public function getConfig(): array
     {
@@ -299,7 +299,7 @@ class EmailChannel implements RichNotificationChannel
     /**
      * Set channel-specific configuration
      *
-     * @param array $config The new configuration
+     * @param array<string, mixed> $config The new configuration
      * @return self
      */
     public function setConfig(array $config): self
@@ -374,7 +374,7 @@ class EmailChannel implements RichNotificationChannel
     /**
      * Create a Symfony Email object from email data
      *
-     * @param array $data The email data
+     * @param array<string, mixed> $data The email data
      * @param string $recipientEmail The primary recipient email
      * @return Email Configured email object
      */

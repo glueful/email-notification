@@ -19,14 +19,14 @@ use Glueful\Http\Exceptions\Domain\BusinessLogicException;
 class EmailFormatter
 {
     /**
-     * @var array Formatter templates keyed by notification type
+     * @var array<string, array<string, mixed>|string> Formatter templates keyed by notification type
      */
     private array $templates = [];
 
     private ApplicationContext $context;
 
     /**
-     * @var array Default formatting options
+     * @var array<string, mixed> Default formatting options
      */
     private array $defaultOptions = [
         'include_footer' => true,
@@ -38,8 +38,8 @@ class EmailFormatter
     /**
      * EmailFormatter constructor
      *
-     * @param array $templates Custom templates
-     * @param array $options Formatting options
+     * @param array<string, array<string, mixed>|string> $templates Custom templates
+     * @param array<string, mixed> $options Formatting options
      */
     public function __construct(ApplicationContext $context, array $templates = [], array $options = [])
     {
@@ -113,9 +113,9 @@ class EmailFormatter
     /**
      * Format notification data for email delivery
      *
-     * @param array $data The notification data
+     * @param array<string, mixed> $data The notification data
      * @param Notifiable $notifiable The entity receiving the notification
-     * @return array Formatted email data with subject, content, etc.
+     * @return array<string, mixed> Formatted email data with subject, content, etc.
      */
     public function format(array $data, Notifiable $notifiable): array
     {
@@ -177,7 +177,7 @@ class EmailFormatter
      * Register a template for a notification type
      *
      * @param string $name Template name
-     * @param array|string $template Template data or path
+     * @param array<string, mixed>|string $template Template data or path
      * @return self
      */
     public function registerTemplate(string $name, $template): self
@@ -191,7 +191,7 @@ class EmailFormatter
      *
      * @param string $type Notification type
      * @param string $name Template name
-     * @return array|string Template data
+     * @return array<string, mixed>|string Template data
      */
     public function getTemplate(string $type, string $name = 'default')
     {
@@ -220,8 +220,8 @@ class EmailFormatter
     /**
      * Render a template with provided data
      *
-     * @param array|string $template Template data or path
-     * @param array $data Variables for template
+     * @param array<string, mixed>|string $template Template data or path
+     * @param array<string, mixed> $data Variables for template
      * @return string Rendered template
      */
     protected function renderTemplate($template, array $data): string
@@ -292,7 +292,7 @@ class EmailFormatter
      * Apply layout template to content
      *
      * @param string $content The template content
-     * @param array $data Variables for substitution
+     * @param array<string, mixed> $data Variables for substitution
      * @return string Content wrapped in layout
      */
     protected function applyLayout(string $content, array $data): string
@@ -326,7 +326,7 @@ class EmailFormatter
      * Replace variables in a template string with support for conditional blocks
      *
      * @param string $template Template string
-     * @param array $data Variables for substitution
+     * @param array<string, mixed> $data Variables for substitution
      * @return string Template with variables replaced
      */
     protected function replaceVariables(string $template, array $data): string
@@ -339,7 +339,7 @@ class EmailFormatter
                 return $this->includePartial($partialName, $data);
             },
             $template
-        );
+        ) ?? $template;
 
         // Process conditional blocks {{#if variable}}...content...{{/if}}
         $template = preg_replace_callback(
@@ -356,7 +356,7 @@ class EmailFormatter
                 return ''; // Remove block if condition fails
             },
             $template
-        );
+        ) ?? $template;
 
         // Replace simple variables in the form {{variable}} or {{variable|default}}
         $result = preg_replace_callback(
@@ -387,14 +387,14 @@ class EmailFormatter
             $template
         );
 
-        return $result;
+        return $result ?? $template;
     }
 
     /**
      * Include a partial template
      *
      * @param string $partialName Name of the partial to include
-     * @param array $data Variables for substitution
+     * @param array<string, mixed> $data Variables for substitution
      * @return string Rendered partial content
      */
     protected function includePartial(string $partialName, array $data): string
@@ -441,8 +441,8 @@ class EmailFormatter
         $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
         // Remove excess whitespace
-        $text = preg_replace('/\s+/', ' ', $text);
-        $text = preg_replace('/\n\s*\n/', "\n\n", $text);
+        $text = preg_replace('/\s+/', ' ', $text) ?? $text;
+        $text = preg_replace('/\n\s*\n/', "\n\n", $text) ?? $text;
 
         return trim($text);
     }
@@ -475,7 +475,7 @@ class EmailFormatter
         $this->templates['default'] = $defaultTemplatePath;
 
         // Scan for all HTML templates in the directory
-        $files = glob($templatesPath . '/*.html');
+        $files = glob($templatesPath . '/*.html') ?: [];
         foreach ($files as $file) {
             $templateName = pathinfo($file, PATHINFO_FILENAME);
 
@@ -494,7 +494,7 @@ class EmailFormatter
                 continue;
             }
 
-            $customFiles = glob($customPath . '/*.html');
+            $customFiles = glob($customPath . '/*.html') ?: [];
             foreach ($customFiles as $file) {
                 $templateName = pathinfo($file, PATHINFO_FILENAME);
                 $this->templates[$templateName] = $file;
@@ -505,7 +505,7 @@ class EmailFormatter
     /**
      * Set default formatting options
      *
-     * @param array $options Formatting options
+     * @param array<string, mixed> $options Formatting options
      * @return self
      */
     public function setOptions(array $options): self

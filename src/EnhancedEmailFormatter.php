@@ -33,8 +33,8 @@ class EnhancedEmailFormatter extends EmailFormatter
      * EnhancedEmailFormatter constructor
      *
      * @param ApplicationContext $context Application context (required by the base formatter)
-     * @param array $templates Custom templates
-     * @param array $options Formatting options
+     * @param array<string, array<string, mixed>|string> $templates Custom templates
+     * @param array<string, mixed> $options Formatting options
      * @param bool $enableTwig Whether to enable Twig support
      */
     public function __construct(
@@ -76,7 +76,7 @@ class EnhancedEmailFormatter extends EmailFormatter
      * Format with Twig template
      *
      * @param string $template Template name (without .twig extension)
-     * @param array $data Template data
+     * @param array<string, mixed> $data Template data
      * @return Email Symfony Email object
      */
     public function formatWithTwig(string $template, array $data): Email
@@ -108,7 +108,7 @@ class EnhancedEmailFormatter extends EmailFormatter
      * Build an enhanced email with Symfony Mailer features
      *
      * @param string $templateName Template name
-     * @param array $data Email data
+     * @param array<string, mixed> $data Email data
      * @return Email Configured Email object
      */
     public function buildEmailFromTemplate(string $templateName, array $data): Email

@@ -40,9 +40,9 @@
     },
     "scripts": {
         "test": "vendor/bin/phpunit",
-        "phpcs": "vendor/bin/phpcs --standard=Squiz src",
-        "phpcbf": "vendor/bin/phpcbf --standard=Squiz src",
-        "analyze": "vendor/bin/phpstan analyze src --level=5",
+        "phpcs": "vendor/bin/phpcs --standard=PSR12 src",
+        "phpcbf": "vendor/bin/phpcbf --standard=PSR12 src",
+        "analyze": "vendor/bin/phpstan analyze src --level=8",
         "build": "php scripts/build.php",
         "deploy": "php scripts/deploy.php"
     },

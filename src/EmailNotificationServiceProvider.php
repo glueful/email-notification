@@ -22,11 +22,15 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
     {
         if (self::$cachedVersion === null) {
             $path = __DIR__ . '/../composer.json';
-            $composer = json_decode(file_get_contents($path), true);
+            $raw = file_get_contents($path);
+            $composer = is_string($raw) ? json_decode($raw, true) : null;
+            $composer = is_array($composer) ? $composer : [];
+            $extra = is_array($composer['extra'] ?? null) ? $composer['extra'] : [];
+            $glueful = is_array($extra['glueful'] ?? null) ? $extra['glueful'] : [];
             // Canonical version lives under extra.glueful.version (this is a library package
             // with no top-level "version" key); fall back to a top-level key then a sentinel.
-            self::$cachedVersion = $composer['extra']['glueful']['version']
-                ?? ($composer['version'] ?? '0.0.0');
+            $version = $glueful['version'] ?? $composer['version'] ?? '0.0.0';
+            self::$cachedVersion = is_string($version) ? $version : '0.0.0';
         }
 
         return self::$cachedVersion;
@@ -142,6 +146,8 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
 
     /**
      * Get extension dependencies
+     *
+     * @return array<int, string>
      */
     public function getDependencies(): array
     {

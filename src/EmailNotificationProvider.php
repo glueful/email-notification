@@ -20,7 +20,7 @@ use Glueful\Notifications\Services\ChannelManager;
 class EmailNotificationProvider implements NotificationExtension
 {
     /**
-     * @var array Configuration settings
+     * @var array<string, mixed> Configuration settings
      */
     private array $config;
     /**
@@ -41,7 +41,7 @@ class EmailNotificationProvider implements NotificationExtension
     /**
      * Provider constructor
      *
-     * @param array $config Optional configuration to override defaults
+     * @param array<string, mixed> $config Optional configuration to override defaults
      */
     public function __construct(ApplicationContext $context, array $config = [])
     {
@@ -65,8 +65,8 @@ class EmailNotificationProvider implements NotificationExtension
     /**
      * Transform core mail config to match EmailChannel expectations
      *
-     * @param array $coreConfig Core mail config from services.php
-     * @return array Transformed config for EmailChannel
+     * @param array<string, mixed> $coreConfig Core mail config from services.php
+     * @return array<string, mixed> Transformed config for EmailChannel
      */
     private function transformCoreMailConfig(array $coreConfig): array
     {
@@ -94,7 +94,7 @@ class EmailNotificationProvider implements NotificationExtension
     /**
      * Initialize the extension
      *
-     * @param array $config Configuration options for the extension
+     * @param array<string, mixed> $config Configuration options for the extension
      * @return bool Whether the initialization was successful
      */
     public function initialize(array $config = []): bool
@@ -131,7 +131,7 @@ class EmailNotificationProvider implements NotificationExtension
     /**
      * Get the supported notification types
      *
-     * @return array List of notification types supported by this extension
+     * @return array<int, string> List of notification types supported by this extension
      */
     public function getSupportedNotificationTypes(): array
     {
@@ -150,10 +150,10 @@ class EmailNotificationProvider implements NotificationExtension
     /**
      * Process the notification before it's sent
      *
-     * @param array $data The notification data
+     * @param array<string, mixed> $data The notification data
      * @param Notifiable $notifiable The entity receiving the notification
      * @param string $channel The notification channel
-     * @return array The processed notification data
+     * @return array<string, mixed> The processed notification data
      */
     public function beforeSend(array $data, Notifiable $notifiable, string $channel): array
     {
@@ -173,7 +173,7 @@ class EmailNotificationProvider implements NotificationExtension
         }
 
         // Check debug mode
-        if (!empty($this->config['debug'])) {
+        if (!empty($this->config['debug']['enabled'])) {
             // In debug mode, log the email but don't modify the data
             $this->logger->debug('Email notification to be sent', [
                 'recipient' => $notifiable->routeNotificationFor('email'),
@@ -188,7 +188,7 @@ class EmailNotificationProvider implements NotificationExtension
     /**
      * Process after a notification has been sent
      *
-     * @param array $data The notification data
+     * @param array<string, mixed> $data The notification data
      * @param Notifiable $notifiable The entity that received the notification
      * @param string $channel The notification channel
      * @param bool $success Whether the notification was sent successfully
@@ -241,7 +241,7 @@ class EmailNotificationProvider implements NotificationExtension
     /**
      * Get extension information
      *
-     * @return array Extension metadata
+     * @return array<string, mixed> Extension metadata
      */
     public function getExtensionInfo(): array
     {
@@ -346,7 +346,7 @@ class EmailNotificationProvider implements NotificationExtension
     /**
      * Get the configuration
      *
-     * @return array Configuration settings
+     * @return array<string, mixed> Configuration settings
      */
     public function getConfig(): array
     {
@@ -374,7 +374,7 @@ class EmailNotificationProvider implements NotificationExtension
      * - Success rate
      * - Average delivery time
      *
-     * @return array Email provider metrics
+     * @return array<string, mixed> Email provider metrics
      */
     public function getMetrics(): array
     {
@@ -392,7 +392,8 @@ class EmailNotificationProvider implements NotificationExtension
 
         try {
             // Use fluent QueryBuilder interface
-            $db = new \Glueful\Database\Connection();
+            /** @var \Glueful\Database\Connection $db */
+            $db = app($this->context, \Glueful\Database\Connection::class);
 
             // Count total emails sent through email channel
             $sentEmails = $db
