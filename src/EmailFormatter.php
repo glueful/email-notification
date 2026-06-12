@@ -151,6 +151,14 @@ class EmailFormatter
         $templateData['subject'] = $result['subject'];
         $templateData['title'] = $result['subject']; // Add title as an alias to subject
 
+        // Neutralise URLs whose scheme isn't http(s) before they reach href slots
+        // (e.g. javascript:/data: payloads in action_url / reset_url).
+        foreach (['action_url', 'reset_url'] as $urlKey) {
+            if (isset($templateData[$urlKey]) && !$this->isSafeUrl((string) $templateData[$urlKey])) {
+                $templateData[$urlKey] = '';
+            }
+        }
+
         // Ensure logo_url is always available, using global_variables from config
         // The global_variables are loaded from services.mail.templates.global_variables
         if (!isset($templateData['logo_url'])) {
@@ -358,7 +366,22 @@ class EmailFormatter
             $template
         ) ?? $template;
 
-        // Replace simple variables in the form {{variable}} or {{variable|default}}
+        // Replace raw variables in the form {{{variable}}} WITHOUT escaping.
+        // Reserved for slots that intentionally receive pre-rendered HTML (e.g. the
+        // layout's {{{content}}}). Must run before the {{variable}} pass so the triple
+        // braces are consumed first.
+        $template = preg_replace_callback(
+            '/\{\{\{\s*([a-zA-Z0-9_\.]+)\s*\}\}\}/',
+            function ($matches) use ($data) {
+                $value = $this->resolveValue(trim($matches[1]), $data, null);
+                return $value === null ? '' : (string) $value;
+            },
+            $template
+        ) ?? $template;
+
+        // Replace simple variables in the form {{variable}} or {{variable|default}}.
+        // Every interpolated scalar is HTML-escaped to prevent notification data
+        // (display names, messages, …) from injecting markup into outgoing email.
         $result = preg_replace_callback(
             '/\{\{([^}]+)\}\}/',
             function ($matches) use ($data) {
@@ -366,28 +389,73 @@ class EmailFormatter
                 $key = trim($parts[0]);
                 $default = isset($parts[1]) ? trim($parts[1]) : '';
 
-                // Handle nested keys with dot notation (e.g., user.name)
-                if (strpos($key, '.') !== false) {
-                    $keyParts = explode('.', $key);
-                    $value = $data;
+                $value = $this->resolveValue($key, $data, $default);
 
-                    foreach ($keyParts as $part) {
-                        if (is_array($value) && isset($value[$part])) {
-                            $value = $value[$part];
-                        } else {
-                            return $default; // Key not found, use default
-                        }
-                    }
-
-                    return is_scalar($value) ? (string)$value : $default;
-                }
-
-                return isset($data[$key]) && is_scalar($data[$key]) ? (string)$data[$key] : $default;
+                // Template-author-controlled default literals are escaped too.
+                return $this->escape($value);
             },
             $template
         );
 
         return $result ?? $template;
+    }
+
+    /**
+     * Resolve a (possibly dot-notated) template key against the data set.
+     *
+     * @param array<string, mixed> $data
+     * @param string|null $default Fallback when the key is missing or non-scalar.
+     */
+    private function resolveValue(string $key, array $data, ?string $default): ?string
+    {
+        if (strpos($key, '.') !== false) {
+            $value = $data;
+            foreach (explode('.', $key) as $part) {
+                if (is_array($value) && isset($value[$part])) {
+                    $value = $value[$part];
+                } else {
+                    return $default;
+                }
+            }
+
+            return is_scalar($value) ? (string) $value : $default;
+        }
+
+        return isset($data[$key]) && is_scalar($data[$key]) ? (string) $data[$key] : $default;
+    }
+
+    /**
+     * HTML-escape an interpolated value for safe inclusion in markup/attributes.
+     */
+    private function escape(?string $value): string
+    {
+        return htmlspecialchars($value ?? '', ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+
+    /**
+     * Whether a URL is safe to place in an href slot (http/https only).
+     * Relative URLs (no scheme) are allowed; anything with a non-http(s)
+     * scheme (javascript:, data:, …) is rejected.
+     */
+    private function isSafeUrl(string $url): bool
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return false;
+        }
+
+        // Reject anything parse_url can't make sense of — malformed URLs (embedded
+        // whitespace/control characters) are how scheme filters get smuggled past.
+        if (parse_url($url) === false) {
+            return false;
+        }
+
+        $scheme = parse_url($url, PHP_URL_SCHEME);
+        if ($scheme === null || $scheme === false) {
+            return true; // relative URL, no scheme to abuse
+        }
+
+        return in_array(strtolower($scheme), ['http', 'https'], true);
     }
 
     /**
