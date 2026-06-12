@@ -205,17 +205,20 @@ class EmailChannel implements RichNotificationChannel
         } catch (TransportExceptionInterface $e) {
             $latencyMs = (int) round((microtime(true) - $start) * 1000);
 
-            // Log the error using LogManager
-            $this->logger->error('Email notification failed: ' . $e->getMessage(), [
-                'notifiable_id' => $notifiable->getNotifiableId(),
-                'notification_data' => $data,
-                'exception' => [
+            // Transport failures are frequent/transient, so this path runs routinely. The raw
+            // notification payload carries OTP pins, password-reset tokens/URLs and PII -- none of
+            // it key-named in a way the log sink's key-based redaction would catch -- so it must
+            // NEVER be logged. Record only a safe, value-free subset (see safeNotificationLogContext).
+            $this->logger->error('Email notification failed: ' . $e->getMessage(), array_merge(
+                ['notifiable_id' => $notifiable->getNotifiableId()],
+                $this->safeNotificationLogContext($data),
+                ['exception' => [
                     'message' => $e->getMessage(),
                     'code' => $e->getCode(),
                     'file' => $e->getFile(),
                     'line' => $e->getLine()
-                ]
-            ]);
+                ]]
+            ));
 
             return NotificationResult::failure(
                 errorCode: 'transport_exception',
@@ -224,6 +227,31 @@ class EmailChannel implements RichNotificationChannel
                 latencyMs: $latencyMs
             );
         }
+    }
+
+    /**
+     * Build a safe, value-free log context describing a notification payload.
+     *
+     * Email payloads carry OTP pins, password-reset tokens/URLs and PII, so their VALUES must never
+     * reach the logs (the log sink only redacts by key NAME, and these are not key-named). Only
+     * operator-authored / identifier fields are echoed verbatim: `subject` (operator-authored),
+     * `type` and `template_name` (identifiers). Everything else is reduced to its KEYS so the shape
+     * of the payload is still auditable without exposing any sensitive content.
+     *
+     * @param array<string, mixed> $data The raw notification data
+     * @return array<string, mixed> Safe context fragment suitable for logging
+     */
+    private function safeNotificationLogContext(array $data): array
+    {
+        $context = ['notification_keys' => array_keys($data)];
+
+        foreach (['subject', 'type', 'template_name'] as $safeField) {
+            if (isset($data[$safeField]) && is_scalar($data[$safeField])) {
+                $context[$safeField] = $data[$safeField];
+            }
+        }
+
+        return $context;
     }
 
     /**

@@ -277,7 +277,53 @@ class EmailNotificationProvider implements NotificationExtension
             'description' => 'Provides email notification capabilities using Symfony Mailer',
             'author' => 'Glueful',
             'channels' => ['email'],
-            'config' => $this->config
+            // Safe diagnostics ONLY. The merged $this->config carries SMTP/API credentials
+            // (password/key/secret/token/username/dsn); returning it raw leaked those to any
+            // diagnostic surface. Expose non-sensitive metadata instead: the default mailer's
+            // transport type, the from address (public-facing -- it appears on every sent email),
+            // and boolean feature flags. No credential VALUES are ever included here.
+            'config' => $this->safeConfigSummary(),
+        ];
+    }
+
+    /**
+     * Build a credential-free summary of the mail configuration for diagnostics.
+     *
+     * Returns the default mailer name and its transport type (identifiers, not secrets), the
+     * from address (public-facing), and boolean feature flags. Deliberately excludes every
+     * credential field (host, port, username, password, key, secret, token, dsn, ...).
+     *
+     * @return array<string, mixed> Safe, value-free-of-credentials config summary
+     */
+    private function safeConfigSummary(): array
+    {
+        $defaultMailer = is_string($this->config['default'] ?? null) ? $this->config['default'] : 'smtp';
+
+        $transport = null;
+        $mailers = $this->config['mailers'] ?? null;
+        if (is_array($mailers) && isset($mailers[$defaultMailer]) && is_array($mailers[$defaultMailer])) {
+            $candidate = $mailers[$defaultMailer]['transport'] ?? $defaultMailer;
+            $transport = is_string($candidate) ? $candidate : $defaultMailer;
+        }
+
+        $from = $this->config['from'] ?? null;
+        $fromAddress = (is_array($from) && is_string($from['address'] ?? null)) ? $from['address'] : null;
+
+        $security = is_array($this->config['security'] ?? null) ? $this->config['security'] : [];
+
+        return [
+            'default_mailer' => $defaultMailer,
+            'transport' => $transport,
+            // From address is public-facing (it appears in the headers of every email this channel
+            // sends), so exposing it in diagnostics reveals nothing a recipient cannot already see.
+            'from_address' => $fromAddress,
+            'features' => [
+                'debug_enabled' => !empty($this->config['debug']['enabled']),
+                'logging_enabled' => !empty($this->config['logging']['enabled']),
+                'domain_policy_configured' =>
+                    !empty($security['allowed_domains']) || !empty($security['blocked_domains']),
+                'attachment_confinement_configured' => !empty($security['attachment_allowed_paths']),
+            ],
         ];
     }
 
