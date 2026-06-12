@@ -71,9 +71,16 @@ return [
     ],
 
     // Security features
-    // Recipient domain policy, enforced by EmailChannel before sending:
+    // Recipient domain policy, enforced by EmailChannel before sending. EVERY recipient is
+    // checked -- the primary recipient plus all cc/bcc addresses -- so an allowlist cannot be
+    // bypassed via a cc/bcc field; any disallowed address fails the whole send closed.
     //   - blocked_domains: denylist (a matching recipient domain is rejected)
     //   - allowed_domains: allowlist (when set, only matching recipient domains pass)
+    // Matching is ASYMMETRIC by design: blocked_domains also matches subdomains (blocking
+    // 'evil.com' also blocks 'sub.evil.com'), while allowed_domains is EXACT-match only
+    // (allowlisting 'company.com' does NOT permit 'sub.company.com'). Subdomain-widening the
+    // allowlist would silently permit recipients beyond what was explicitly listed, so the
+    // allowlist stays strict.
     // Each accepts a comma-separated string (env) or an array.
     'security' => [
         'allowed_domains' => env('MAIL_ALLOWED_DOMAINS', null),

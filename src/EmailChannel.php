@@ -127,10 +127,15 @@ class EmailChannel implements RichNotificationChannel
 
         // Enforce the configured domain policy (security.allowed_domains / blocked_domains)
         // before doing any work -- a disallowed recipient is a permanent policy failure.
-        if (!$this->isRecipientDomainAllowed((string) $recipientEmail)) {
+        // Validate EVERY recipient that will end up on the message, not just the primary one:
+        // cc/bcc are added unchecked in createEmail(), so an allowlist meant to stop outbound
+        // leaks would otherwise be bypassable by anyone able to set a cc/bcc field. Fail closed.
+        $policyFailure = $this->firstDisallowedRecipient((string) $recipientEmail, $data);
+        if ($policyFailure !== null) {
             return NotificationResult::failure(
                 errorCode: 'blocked_domain',
-                errorMessage: 'Recipient domain is not permitted by the mail security policy.',
+                // Name the offending address class, but do not echo the full recipient list.
+                errorMessage: $policyFailure . ' is not permitted by the mail security policy.',
                 retryable: false
             );
         }
@@ -199,12 +204,56 @@ class EmailChannel implements RichNotificationChannel
     }
 
     /**
+     * Find the first recipient that the mail security policy rejects, checking the primary
+     * recipient plus every cc/bcc entry. Returns a short description of the offending address
+     * class (e.g. "Recipient cc:user@evil.test") for the failure message, or null if all pass.
+     *
+     * cc/bcc are cast `(array)` in {@see self::createEmail()}, so they may arrive as a string or
+     * an array. Each entry must be a string: a non-string entry (e.g. a Symfony Address object or
+     * malformed structure) cannot be domain-checked here and is treated as a policy failure
+     * (fail closed) rather than passed through unchecked.
+     *
+     * @param array<string, mixed> $data Notification data carrying optional cc/bcc lists
+     * @return string|null Offending address class, or null when every recipient is permitted
+     */
+    private function firstDisallowedRecipient(string $recipientEmail, array $data): ?string
+    {
+        if (!$this->isRecipientDomainAllowed($recipientEmail)) {
+            return 'Recipient ' . $recipientEmail;
+        }
+
+        foreach (['cc', 'bcc'] as $field) {
+            if (empty($data[$field])) {
+                continue;
+            }
+
+            foreach ((array) $data[$field] as $address) {
+                // A non-string entry cannot be domain-checked -- fail closed rather than let an
+                // un-validated recipient onto the message.
+                if (!is_string($address) || !$this->isRecipientDomainAllowed($address)) {
+                    $shown = is_string($address) ? $address : '<non-string entry>';
+                    return 'Recipient ' . $field . ':' . $shown;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Whether the recipient's domain is permitted by the configured mail security policy.
      *
      * `security.blocked_domains` is a denylist (a matching domain is rejected);
      * `security.allowed_domains`, when non-empty, is an allowlist (only matching domains pass).
      * Both accept a comma-separated string or an array. With neither configured, all domains
      * are allowed (the prior behavior).
+     *
+     * Matching is deliberately ASYMMETRIC: the blocklist matches subdomains too (a domain is
+     * blocked if it equals an entry OR ends with `'.' . $entry`, so blocking `evil.com` also
+     * blocks `sub.evil.com`), while the allowlist stays EXACT-match. Loosening the allowlist to
+     * subdomains would be a safety regression -- it would silently widen the set of permitted
+     * recipients beyond what was explicitly listed -- so allowlisting `company.com` does NOT
+     * permit `sub.company.com`.
      */
     private function isRecipientDomainAllowed(string $email): bool
     {
@@ -215,7 +264,7 @@ class EmailChannel implements RichNotificationChannel
         $security = is_array($this->config['security'] ?? null) ? $this->config['security'] : [];
 
         $blocked = $this->parseDomainList($security['blocked_domains'] ?? null);
-        if ($domain !== '' && in_array($domain, $blocked, true)) {
+        if ($domain !== '' && $this->domainMatchesWithSubdomains($domain, $blocked)) {
             return false;
         }
 
@@ -225,6 +274,23 @@ class EmailChannel implements RichNotificationChannel
         }
 
         return true;
+    }
+
+    /**
+     * Whether $domain equals any list entry or is a subdomain of one (ends with `'.' . $entry`).
+     * Used for the blocklist only; the allowlist intentionally relies on exact `in_array()`.
+     *
+     * @param array<int, string> $list Lower-cased domain entries
+     */
+    private function domainMatchesWithSubdomains(string $domain, array $list): bool
+    {
+        foreach ($list as $entry) {
+            if ($domain === $entry || str_ends_with($domain, '.' . $entry)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
