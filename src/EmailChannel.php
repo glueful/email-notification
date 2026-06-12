@@ -46,6 +46,11 @@ class EmailChannel implements RichNotificationChannel
     private ApplicationContext $context;
 
     /**
+     * @var AttachmentPathValidator|null Lazily-built attachment/embed path confinement validator.
+     */
+    private ?AttachmentPathValidator $attachmentValidator = null;
+
+    /**
      * EmailChannel constructor
      *
      * @param array<string, mixed> $config Email configuration
@@ -154,6 +159,24 @@ class EmailChannel implements RichNotificationChannel
 
             return NotificationResult::success(
                 providerMessageId: $sent?->getMessageId(),
+                latencyMs: $latencyMs
+            );
+        } catch (InvalidAttachmentException $e) {
+            $latencyMs = (int) round((microtime(true) - $start) * 1000);
+
+            // An attachment/embed path escaped the allowed directories -- a permanent policy
+            // failure, never retried. Log the rejected path by name (loud, not silent) so the
+            // exfiltration attempt is auditable; the path is the caller-supplied value, not a
+            // credential, so it is safe to record.
+            $this->logger->error('Email attachment rejected by path policy: ' . $e->getMessage(), [
+                'notifiable_id' => $notifiable->getNotifiableId(),
+                'rejected_path' => $e->rejectedPath,
+            ]);
+
+            return NotificationResult::failure(
+                errorCode: 'invalid_attachment',
+                errorMessage: $e->getMessage(),
+                retryable: false,
                 latencyMs: $latencyMs
             );
         } catch (TransportMisconfiguredException $e) {
@@ -475,11 +498,23 @@ class EmailChannel implements RichNotificationChannel
     }
 
     /**
+     * Resolve (and cache) the attachment/embed path confinement validator for this channel.
+     *
+     * Built from `security.attachment_allowed_paths`, defaulting to the application storage dir.
+     */
+    private function attachmentValidator(): AttachmentPathValidator
+    {
+        return $this->attachmentValidator
+            ??= AttachmentPathValidator::fromConfig($this->context, $this->config);
+    }
+
+    /**
      * Create a Symfony Email object from email data
      *
      * @param array<string, mixed> $data The email data
      * @param string $recipientEmail The primary recipient email
      * @return Email Configured email object
+     * @throws InvalidAttachmentException If an attachment/embed path escapes the allowed dirs
      */
     private function createEmail(array $data, string $recipientEmail): Email
     {
@@ -488,8 +523,14 @@ class EmailChannel implements RichNotificationChannel
             $this->formatter instanceof \Glueful\Extensions\EmailNotification\EnhancedEmailFormatter
             && isset($data['template'])
         ) {
-            // Use enhanced formatter to build email with advanced features
-            $email = $this->formatter->buildEmailFromTemplate($data['template'], $data);
+            // Use enhanced formatter to build email with advanced features. The same path
+            // confinement validator is handed in so the enhanced branch funnels its
+            // attachment/embed paths through the identical check (throwing InvalidAttachmentException).
+            $email = $this->formatter->buildEmailFromTemplate(
+                $data['template'],
+                $data,
+                $this->attachmentValidator()
+            );
 
             // Override recipient
             $email->to($recipientEmail);
@@ -560,12 +601,12 @@ class EmailChannel implements RichNotificationChannel
             $email->priority($priority);
         }
 
-        // Embed images if specified
+        // Embed images if specified. Confine every path to the allowed directories first: a
+        // rejected path throws InvalidAttachmentException (fail closed, not silently skipped).
         if (isset($data['embedImages']) && is_array($data['embedImages'])) {
             foreach ($data['embedImages'] as $cid => $path) {
-                if (file_exists($path)) {
-                    $email->embedFromPath($path, $cid);
-                }
+                $this->attachmentValidator()->validate((string) $path);
+                $email->embedFromPath((string) $path, (string) $cid);
             }
         }
 
@@ -594,16 +635,20 @@ class EmailChannel implements RichNotificationChannel
             $email->text($data['text_content'] ?? '');
         }
 
-        // Add attachments if any
+        // Add attachments if any. Each path is confined to the allowed directories before it
+        // reaches Symfony -- a rejected path throws InvalidAttachmentException rather than being
+        // silently dropped, so an exfiltration attempt becomes a loud, non-retryable failure.
         if (!empty($data['attachments'])) {
             foreach ($data['attachments'] as $attachment) {
                 if (is_array($attachment) && isset($attachment['path'])) {
+                    $this->attachmentValidator()->validate((string) $attachment['path']);
                     $email->attachFromPath(
-                        $attachment['path'],
+                        (string) $attachment['path'],
                         $attachment['name'] ?? null,
                         $attachment['contentType'] ?? null
                     );
                 } elseif (is_string($attachment)) {
+                    $this->attachmentValidator()->validate($attachment);
                     $email->attachFromPath($attachment);
                 }
             }

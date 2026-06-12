@@ -30,6 +30,12 @@ class EnhancedEmailFormatter extends EmailFormatter
     private bool $useTwig = false;
 
     /**
+     * @var ApplicationContext Application context (kept for default attachment-path confinement
+     *                         when buildEmailFromTemplate() is called without an explicit validator)
+     */
+    private ApplicationContext $enhancedContext;
+
+    /**
      * EnhancedEmailFormatter constructor
      *
      * @param ApplicationContext $context Application context (required by the base formatter)
@@ -44,6 +50,8 @@ class EnhancedEmailFormatter extends EmailFormatter
         bool $enableTwig = false
     ) {
         parent::__construct($context, $templates, $options);
+
+        $this->enhancedContext = $context;
 
         if ($enableTwig) {
             $this->initializeTwig();
@@ -107,12 +115,28 @@ class EnhancedEmailFormatter extends EmailFormatter
     /**
      * Build an enhanced email with Symfony Mailer features
      *
+     * Attachment and embedded-image paths originate from notification data (potentially
+     * user-influenced) and are confined to an allowlist of base directories before they reach
+     * Symfony. A rejected path throws {@see InvalidAttachmentException} (fail closed, not silently
+     * skipped) -- {@see EmailChannel::sendNotification()} maps that to an `invalid_attachment`
+     * failure. The validator is supplied by the channel so this branch and the channel's standard
+     * branch share an identical check; when called directly without one, a default validator
+     * confined to the application storage directory is built from the context.
+     *
      * @param string $templateName Template name
      * @param array<string, mixed> $data Email data
+     * @param AttachmentPathValidator|null $attachmentValidator Path confinement validator
      * @return Email Configured Email object
+     * @throws InvalidAttachmentException If an attachment/embed path escapes the allowed dirs
      */
-    public function buildEmailFromTemplate(string $templateName, array $data): Email
-    {
+    public function buildEmailFromTemplate(
+        string $templateName,
+        array $data,
+        ?AttachmentPathValidator $attachmentValidator = null
+    ): Email {
+        // Fail closed even on the direct-call path: default to a storage-confined validator.
+        $attachmentValidator ??= AttachmentPathValidator::fromConfig($this->enhancedContext, []);
+
         // Use parent formatter to get HTML and text content
         $formatted = $this->format($data, $data['notifiable'] ?? new DummyNotifiable());
 
@@ -136,12 +160,12 @@ class EnhancedEmailFormatter extends EmailFormatter
             $email->priority($priority);
         }
 
-        // Embed images if specified
+        // Embed images if specified. Confine every path to the allowed directories first: a
+        // rejected path throws InvalidAttachmentException (fail closed, not silently skipped).
         if (isset($data['embedImages']) && is_array($data['embedImages'])) {
             foreach ($data['embedImages'] as $cid => $path) {
-                if (file_exists($path)) {
-                    $email->embedFromPath($path, $cid);
-                }
+                $attachmentValidator->validate((string) $path);
+                $email->embedFromPath((string) $path, (string) $cid);
             }
         }
 
@@ -157,14 +181,18 @@ class EnhancedEmailFormatter extends EmailFormatter
             $email->returnPath($data['returnPath']);
         }
 
-        // Add attachments
+        // Add attachments. Each path is confined to the allowed directories before it reaches
+        // Symfony -- a rejected path throws InvalidAttachmentException rather than being silently
+        // dropped, so an exfiltration attempt becomes a loud, non-retryable failure.
         if (isset($data['attachments']) && is_array($data['attachments'])) {
             foreach ($data['attachments'] as $attachment) {
-                if (is_string($attachment) && file_exists($attachment)) {
+                if (is_string($attachment)) {
+                    $attachmentValidator->validate($attachment);
                     $email->attachFromPath($attachment);
                 } elseif (is_array($attachment) && isset($attachment['path'])) {
+                    $attachmentValidator->validate((string) $attachment['path']);
                     $email->attachFromPath(
-                        $attachment['path'],
+                        (string) $attachment['path'],
                         $attachment['name'] ?? null,
                         $attachment['contentType'] ?? null
                     );

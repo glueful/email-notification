@@ -82,8 +82,20 @@ return [
     // allowlist would silently permit recipients beyond what was explicitly listed, so the
     // allowlist stays strict.
     // Each accepts a comma-separated string (env) or an array.
+    //
+    // Attachment path confinement, enforced by EmailChannel/EnhancedEmailFormatter. Attachment
+    // and embedded-image paths come from notification data (potentially user-influenced); they are
+    // accepted only when realpath() resolves them INSIDE one of these base directories, so a caller
+    // cannot attach arbitrary host files (e.g. /etc/passwd, .env, private keys) and exfiltrate them.
+    //   - attachment_allowed_paths: array of allowed base directories. Each is normalized through
+    //     realpath() and matched with a trailing separator so a sibling dir cannot pass for a child
+    //     ('/app/storage-evil' does NOT satisfy base '/app/storage'). A rejected path is a
+    //     non-retryable 'invalid_attachment' failure (never silently skipped). Default when null /
+    //     empty: the application's storage directory (storage_path()).
     'security' => [
         'allowed_domains' => env('MAIL_ALLOWED_DOMAINS', null),
         'blocked_domains' => env('MAIL_BLOCKED_DOMAINS', null),
+        // null/empty => confine to the application storage directory.
+        'attachment_allowed_paths' => null,
     ],
 ];
