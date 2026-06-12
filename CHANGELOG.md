@@ -6,6 +6,13 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Security
+- **Template engine now HTML-escapes all interpolated notification data.** `EmailFormatter` interpolated `{{variable}}` values raw into HTML, so any user-influenced value (display name, message) could inject markup/links into outgoing mail — including password-reset and 2FA messages. Every `{{var}}`/`{{var|default}}` interpolation (and the default literal) is now escaped with `htmlspecialchars(ENT_QUOTES | ENT_HTML5)`. A new raw triple-mustache `{{{var}}}` syntax exists for slots that intentionally receive pre-rendered HTML — the shipped layout's `{{{content}}}` is the only such slot. `action_url`/`reset_url` values are blanked unless their scheme is http(s) (relative URLs pass; malformed URLs are rejected), so `javascript:`/`data:` payloads can't reach href slots. Plain-text generation is unaffected (`htmlToText()` already entity-decodes).
+- **Misconfigured transport no longer silently discards mail while reporting success.** `EmailChannel::createTransport()` fell back to the `null://null` transport on a missing SMTP host, missing provider-bridge credentials, or any transport-factory failure (including a broken failover chain) — `sendNotification()` then returned success while every message vanished. Each path now throws `TransportMisconfiguredException`, surfaced as a non-retryable `transport_misconfigured` failure result with an ERROR log (config keys only — never credential values). Explicitly configured null sinks (`transport: 'null'` / `null://` DSN) keep working. Also hardened DSN construction: SMTP `host` is validated against a hostname/IP pattern before interpolation (rejects smuggled authorities like `smtp.legit.com@evil.com`), `port` is cast to int, the Brevo SMTP username is URL-encoded like the password, and disabling TLS peer verification now logs a warning.
+
+### Removed
+- `TransportFactory::createRoundRobin()` — dead code with zero callers and no corresponding config surface.
+
 ## [1.9.0] - 2026-06-11 — Recipient Domain Policy & Hardening (Framework 1.51)
 
 ### Added

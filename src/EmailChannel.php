@@ -9,7 +9,6 @@ use Glueful\Logging\LogManager;
 use Glueful\Notifications\Contracts\Notifiable;
 use Glueful\Notifications\Contracts\RichNotificationChannel;
 use Glueful\Notifications\Results\NotificationResult;
-use Symfony\Component\Mailer\Transport;
 use Symfony\Component\Mailer\Transport\TransportInterface;
 use Symfony\Component\Mime\Email;
 use Symfony\Component\Mime\Address;
@@ -105,7 +104,8 @@ class EmailChannel implements RichNotificationChannel
      * Send the notification and return a structured {@see NotificationResult}.
      *
      * Captures the Symfony provider message id (when the transport returns one) and the send
-     * latency, and maps failure modes to stable error codes: `no_recipient` (non-retryable) and
+     * latency, and maps failure modes to stable error codes: `no_recipient` (non-retryable),
+     * `blocked_domain` (non-retryable), `transport_misconfigured` (non-retryable) and
      * `transport_exception` (retryable).
      *
      * @param Notifiable $notifiable The entity receiving the notification
@@ -149,6 +149,29 @@ class EmailChannel implements RichNotificationChannel
 
             return NotificationResult::success(
                 providerMessageId: $sent?->getMessageId(),
+                latencyMs: $latencyMs
+            );
+        } catch (TransportMisconfiguredException $e) {
+            $latencyMs = (int) round((microtime(true) - $start) * 1000);
+
+            // Configuration error, not a transient delivery failure -- do not retry. Log the
+            // config KEYS only: this config carries SMTP/provider credentials whose VALUES must
+            // never reach the logs.
+            $this->logger->error('Email transport misconfigured: ' . $e->getMessage(), [
+                'notifiable_id' => $notifiable->getNotifiableId(),
+                'config_keys' => array_keys($this->config),
+                'exception' => [
+                    'message' => $e->getMessage(),
+                    'code' => $e->getCode(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine()
+                ]
+            ]);
+
+            return NotificationResult::failure(
+                errorCode: 'transport_misconfigured',
+                errorMessage: $e->getMessage(),
+                retryable: false,
                 latencyMs: $latencyMs
             );
         } catch (TransportExceptionInterface $e) {
@@ -312,8 +335,15 @@ class EmailChannel implements RichNotificationChannel
      * Build the configured Symfony transport (used directly by {@see self::sendNotification()}
      * so the returned SentMessage's provider message id can be surfaced).
      *
+     * Misconfiguration is fatal here: a silent fall-back to the null transport would make
+     * {@see self::sendNotification()} report success while every message is discarded. Each
+     * failure path throws {@see TransportMisconfiguredException} describing exactly what is
+     * missing; {@see self::sendNotification()} converts that into a non-retryable failure result.
+     * The `null` transport remains supported, but only when a mailer is explicitly configured
+     * with `transport: 'null'` (or a `null://null` DSN) — never as an implicit fallback.
+     *
      * @return TransportInterface Configured transport instance
-     * @throws \Exception If the mailer configuration is missing
+     * @throws TransportMisconfiguredException If the mailer configuration is missing or invalid
      */
     private function createTransport(): TransportInterface
     {
@@ -322,7 +352,7 @@ class EmailChannel implements RichNotificationChannel
 
         // We expect the new multi-mailer configuration
         if (!isset($this->config['mailers'][$defaultMailer])) {
-            throw new \Exception("Mailer configuration not found for: {$defaultMailer}");
+            throw new TransportMisconfiguredException("Mailer configuration not found for: {$defaultMailer}");
         }
 
         $mailerConfig = $this->config['mailers'][$defaultMailer];
@@ -331,10 +361,17 @@ class EmailChannel implements RichNotificationChannel
         $transport = $mailerConfig['transport'] ?? 'smtp';
         $isProviderBridge = strpos($transport, '+') !== false; // e.g., brevo+api, sendgrid+api
 
-        // Validate configuration based on transport type
-        if (!$isProviderBridge && empty($mailerConfig['host'])) {
-            // Fallback to null transport for development environments
-            return Transport::fromDsn('null://null');
+        // Validate configuration based on transport type. A missing host (for SMTP) or missing
+        // credentials (for a provider bridge) is a hard misconfiguration -- fail loudly instead
+        // of silently swallowing mail via the null transport. Mailers explicitly set to the
+        // 'null' transport (or carrying a null:// DSN) are exempt: that is an intentional sink.
+        $isExplicitNull = $transport === 'null'
+            || (is_string($mailerConfig['dsn'] ?? null) && str_starts_with($mailerConfig['dsn'], 'null://'));
+
+        if (!$isExplicitNull && !$isProviderBridge && empty($mailerConfig['host'])) {
+            throw new TransportMisconfiguredException(
+                "SMTP mailer '{$defaultMailer}' is missing a 'host'."
+            );
         }
 
         // For provider bridges, validate they have required credentials
@@ -342,8 +379,10 @@ class EmailChannel implements RichNotificationChannel
             $hasCredentials = !empty($mailerConfig['key']) ||
                              (!empty($mailerConfig['username']) && !empty($mailerConfig['password']));
             if (!$hasCredentials) {
-                // Fallback to null transport if credentials missing
-                return Transport::fromDsn('null://null');
+                throw new TransportMisconfiguredException(
+                    "Provider bridge mailer '{$defaultMailer}' (transport '{$transport}') "
+                    . "is missing credentials (expected 'key', or 'username' and 'password')."
+                );
             }
         }
 
@@ -359,15 +398,13 @@ class EmailChannel implements RichNotificationChannel
 
             // Use the default transport with enhanced provider bridge support
             return \Glueful\Extensions\EmailNotification\TransportFactory::create($this->config);
-        } catch (\Exception $e) {
-            // Log the error for debugging
-            $this->logger->error('Failed to create email transport: ' . $e->getMessage(), [
-                'exception' => $e,
-                'config_keys' => array_keys($this->config)
-            ]);
-
-            // Fallback to null transport for development
-            return Transport::fromDsn('null://null');
+        } catch (\Throwable $e) {
+            // The factory rejected the config (e.g. invalid host, unsupported transport, broken
+            // failover chain). Surface the underlying cause rather than discarding mail silently.
+            throw new TransportMisconfiguredException(
+                'Failed to build email transport: ' . $e->getMessage(),
+                previous: $e
+            );
         }
     }
 

@@ -7,7 +7,6 @@ namespace Glueful\Extensions\EmailNotification;
 use Symfony\Component\Mailer\Transport;
 use Symfony\Component\Mailer\Transport\TransportInterface;
 use Symfony\Component\Mailer\Transport\FailoverTransport;
-use Symfony\Component\Mailer\Transport\RoundRobinTransport;
 
 /**
  * Transport Factory for Symfony Mailer
@@ -100,35 +99,6 @@ class TransportFactory
         }
 
         return new FailoverTransport($transports);
-    }
-
-    /**
-     * Create a round-robin transport for load balancing
-     *
-     * @param array<string, mixed> $config Mail configuration
-     * @return TransportInterface The round-robin transport
-     */
-    public static function createRoundRobin(array $config): TransportInterface
-    {
-        if (!isset($config['round_robin']['mailers']) || empty($config['round_robin']['mailers'])) {
-            // If no round-robin is configured, return the default transport
-            return self::create($config);
-        }
-
-        $transports = [];
-        foreach ($config['round_robin']['mailers'] as $mailerName) {
-            if (!isset($config['mailers'][$mailerName])) {
-                continue;
-            }
-
-            $transports[] = self::createTransportFromConfig($config['mailers'][$mailerName]);
-        }
-
-        if (empty($transports)) {
-            throw new \InvalidArgumentException("No valid transports configured for round-robin");
-        }
-
-        return new RoundRobinTransport($transports);
     }
 
     /**
@@ -231,13 +201,22 @@ class TransportFactory
      */
     private static function createSmtpTransport(array $config): TransportInterface
     {
-        // Build the DSN
+        // Validate the host before interpolating it into the DSN: a value such as
+        // "smtp.legit.com@evil.com" would otherwise smuggle a second authority into the URL and
+        // redirect mail to an attacker-controlled host. Permit only hostnames/IPv4 (letters,
+        // digits, dots, hyphens) and bracketed IPv6 literals ([..] with hex digits and colons).
+        $host = $config['host'] ?? 'localhost';
+        if (!preg_match('/^(?:[A-Za-z0-9.\-]+|\[[0-9A-Fa-f:]+\])$/', (string) $host)) {
+            throw new \InvalidArgumentException("Invalid SMTP host: {$host}");
+        }
+
+        // Build the DSN (port cast to int so a stringy config value can't inject DSN syntax).
         $dsn = sprintf(
             'smtp://%s:%s@%s:%d',
             urlencode($config['username'] ?? ''),
             urlencode($config['password'] ?? ''),
-            $config['host'] ?? 'localhost',
-            $config['port'] ?? 587
+            $host,
+            (int) ($config['port'] ?? 587)
         );
 
         // Add query parameters
@@ -252,6 +231,8 @@ class TransportFactory
         }
 
         if (isset($config['verify_peer']) && !$config['verify_peer']) {
+            // Disabling TLS peer verification exposes the connection to MITM attacks; surface it.
+            error_log('email-notification: SMTP peer verification disabled (verify_peer=0) for host ' . $host);
             $params['verify_peer'] = '0';
         }
 
@@ -293,9 +274,10 @@ class TransportFactory
             throw new \InvalidArgumentException("Brevo SMTP username and password are required");
         }
 
-        // Let Symfony's Brevo bridge handle the username encoding internally
-        // Don't URL-encode the username - the bridge should handle @ symbols correctly
-        $dsn = 'brevo+smtp://' . $config['username'] . ':' . urlencode($config['password']) . '@default';
+        // URL-encode both credentials: an un-encoded "@" or ":" in the username would split the
+        // DSN authority and corrupt the parsed host/credentials (same reasoning as the password).
+        $dsn = 'brevo+smtp://' . rawurlencode($config['username']) . ':'
+            . rawurlencode($config['password']) . '@default';
         return Transport::fromDsn($dsn);
     }
 
