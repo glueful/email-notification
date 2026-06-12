@@ -41,11 +41,21 @@ class EmailNotificationProvider implements NotificationExtension
     /**
      * Provider constructor
      *
+     * @param EmailChannel|null $channel The shared, DI-built email channel. This is the SAME
+     *        instance the framework registers as the live `email` notification channel (see
+     *        {@see EmailNotificationServiceProvider::boot()}); the provider never constructs its
+     *        own channel. Autowired by the container; nullable so the provider remains directly
+     *        instantiable in unit tests.
      * @param array<string, mixed> $config Optional configuration to override defaults
      */
-    public function __construct(ApplicationContext $context, array $config = [])
-    {
+    public function __construct(
+        ApplicationContext $context,
+        ?EmailChannel $channel = null,
+        array $config = []
+    ) {
         $this->context = $context;
+        $this->channel = $channel;
+
         // Load core mail configuration from services.php
         $coreMailConfig = config($this->context, 'services.mail') ?? [];
 
@@ -55,7 +65,12 @@ class EmailNotificationProvider implements NotificationExtension
         // Transform core mail config to match EmailChannel expectations
         $transformedCoreConfig = $this->transformCoreMailConfig($coreMailConfig);
 
-        // Merge configurations: transformed core config + extension features + provided overrides
+        // Merge configurations: transformed core config + extension features + provided overrides.
+        // NOTE: the injected EmailChannel owns the authoritative transport/security configuration
+        // (it loads and merges its own copy with core-wins precedence). This merged copy exists
+        // only for the provider's hook logic (app_name injection in beforeSend(), the debug/logging
+        // flags) and for diagnostics (getExtensionInfo()/isEmailProviderConfigured()). Do not use
+        // it to construct a transport -- that path lives solely in EmailChannel.
         $this->config = array_merge($transformedCoreConfig, $extensionConfig, $config);
 
         // Initialize logger
@@ -92,9 +107,15 @@ class EmailNotificationProvider implements NotificationExtension
         return 'email_notification';
     }
     /**
-     * Initialize the extension
+     * Initialize the extension.
      *
-     * @param array<string, mixed> $config Configuration options for the extension
+     * Uses the shared, DI-built {@see EmailChannel} injected via the constructor -- it does NOT
+     * build a second channel/formatter. (The framework's NotificationDispatcher only stores this
+     * provider for beforeSend/afterSend hooks and never calls this method on the live path; the
+     * live channel is the one registered in EmailNotificationServiceProvider::boot(). This method
+     * remains for the NotificationExtension contract and for direct register() callers.)
+     *
+     * @param array<string, mixed> $config Configuration options for the extension (hook/diagnostics)
      * @return bool Whether the initialization was successful
      */
     public function initialize(array $config = []): bool
@@ -104,13 +125,15 @@ class EmailNotificationProvider implements NotificationExtension
         }
 
         try {
-            // Create the formatter
-            $formatter = new EmailFormatter($this->context);
+            // No channel was injected (e.g. notification subsystem unavailable): nothing to wire.
+            if ($this->channel === null) {
+                $this->logger->error(
+                    'Failed to initialize email notification extension: no EmailChannel was injected'
+                );
+                return false;
+            }
 
-            // Create the channel
-            $this->channel = new EmailChannel($this->context, $this->config, $formatter);
-
-            // Check if the channel is available
+            // Check if the (shared) channel is available
             if (!$this->channel->isAvailable()) {
                 return false;
             }
@@ -118,10 +141,10 @@ class EmailNotificationProvider implements NotificationExtension
             $this->initialized = true;
             return true;
         } catch (\Exception $e) {
-            // Log the error using LogManager
+            // Log the error using LogManager (config KEYS only -- values may carry credentials)
             $this->logger->error('Failed to initialize email notification extension: ' . $e->getMessage(), [
                 'exception' => $e,
-                'config' => $this->config
+                'config_keys' => array_keys($this->config)
             ]);
 
             return false;
@@ -220,7 +243,10 @@ class EmailNotificationProvider implements NotificationExtension
     }
 
     /**
-     * Register the notification channel with the channel manager
+     * Register the notification channel with the channel manager.
+     *
+     * Registers the SAME shared {@see EmailChannel} instance that was injected into this provider
+     * (and that the framework registers as the live `email` channel) -- there is no second channel.
      *
      * @param ChannelManager $channelManager The notification channel manager
      * @return void
@@ -232,7 +258,7 @@ class EmailNotificationProvider implements NotificationExtension
             $this->initialize($this->config);
         }
 
-        // Register the channel with the channel manager
+        // Register the shared channel instance with the channel manager
         if ($this->channel !== null) {
             $channelManager->registerChannel($this->channel);
         }
@@ -282,7 +308,9 @@ class EmailNotificationProvider implements NotificationExtension
             $driverConfig = $mailConfig['mailers'][$defaultMailer];
             $transport = $driverConfig['transport'] ?? $defaultMailer;
 
-            // Check specific driver requirements
+            // Check specific driver requirements. Transport strings must match the values the
+            // TransportFactory actually switches on (provider bridges are suffixed `+api`/`+smtp`).
+            // Credential keys mirror exactly what each TransportFactory factory method requires.
             switch ($transport) {
                 case 'smtp':
                     if (empty($driverConfig['host'])) {
@@ -295,33 +323,59 @@ class EmailNotificationProvider implements NotificationExtension
                     }
                     break;
 
-                case 'ses':
+                case 'ses+api':
                     if (empty($driverConfig['key']) || empty($driverConfig['secret'])) {
                         $this->logger->error("Amazon SES credentials are missing");
                         return false;
                     }
                     break;
 
-                case 'mailgun':
-                    if (empty($driverConfig['domain']) || empty($driverConfig['secret'])) {
+                case 'mailgun+api':
+                    if (empty($driverConfig['domain']) || empty($driverConfig['key'])) {
                         $this->logger->error("Mailgun credentials are missing");
                         return false;
                     }
                     break;
 
-                case 'sendgrid':
+                case 'sendgrid+api':
                     if (empty($driverConfig['key'])) {
                         $this->logger->error("SendGrid API key is missing");
                         return false;
                     }
                     break;
 
-                case 'postmark':
+                case 'postmark+api':
                     if (empty($driverConfig['token'])) {
                         $this->logger->error("Postmark server token is missing");
                         return false;
                     }
                     break;
+
+                case 'brevo+api':
+                    if (empty($driverConfig['key'])) {
+                        $this->logger->error("Brevo API key is missing");
+                        return false;
+                    }
+                    break;
+
+                case 'brevo+smtp':
+                    if (empty($driverConfig['username']) || empty($driverConfig['password'])) {
+                        $this->logger->error("Brevo SMTP credentials are missing");
+                        return false;
+                    }
+                    break;
+
+                // No-credential sinks: explicitly supported, nothing to validate.
+                case 'null':
+                case 'log':
+                case 'array':
+                    break;
+
+                default:
+                    // An unrecognized transport must not silently pass -- credential validation
+                    // would never run for it. Fail closed.
+                    $this->logger->error("Unknown mail transport '{$transport}'; cannot validate credentials");
+                    return false;
             }
 
             // Check from address is configured
