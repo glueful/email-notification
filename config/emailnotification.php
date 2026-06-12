@@ -21,35 +21,9 @@ return [
             'alert' => 'alert',
             'default' => 'default',
         ],
-        'processing' => [
-            'minify_html' => env('MAIL_MINIFY_HTML', false),
-            'inline_css' => env('MAIL_INLINE_CSS', true),
-            'auto_text_version' => true,
-        ],
         'extension_variables' => [
             'extension_version' => 'dev', // Overridden at runtime from composer.json
             'powered_by' => 'Glueful EmailNotification Extension',
-        ],
-    ],
-
-    // Queue integration
-    'queue' => [
-        'enabled' => env('MAIL_QUEUE_ENABLED', true),
-        'connection' => env('MAIL_QUEUE_CONNECTION', 'default'),
-        'queue_name' => env('MAIL_QUEUE_NAME', 'emails'),
-        'retry_after' => env('MAIL_QUEUE_RETRY_AFTER', 90),
-        'max_attempts' => env('MAIL_QUEUE_MAX_ATTEMPTS', 3),
-        'priority' => env('MAIL_QUEUE_PRIORITY', 5),
-        'timeout' => env('MAIL_QUEUE_TIMEOUT', 120),
-    ],
-
-    // Event handling
-    'events' => [
-        'enabled' => env('MAIL_EVENTS_ENABLED', true),
-        'fire_events' => [
-            'email.sending' => true,
-            'email.sent' => true,
-            'email.failed' => true,
         ],
     ],
 
@@ -63,11 +37,17 @@ return [
     ],
 
     // Debug and development
+    // debug.enabled: when true, beforeSend() logs each outgoing email's recipient/subject/type
+    // at debug level (no payload values).
     'debug' => [
         'enabled' => env('MAIL_DEBUG', false),
-        'log_all_emails' => env('MAIL_LOG_ALL', false),
-        'preview_mode' => env('MAIL_PREVIEW_MODE', false),
-        'test_email' => env('MAIL_TEST_EMAIL', null),
+    ],
+
+    // After-send result logging
+    // logging.enabled: when true, the provider's afterSend() hook logs the outcome of each email
+    // (recipient, subject, notification type only -- no payload values) at info/error level.
+    'logging' => [
+        'enabled' => env('MAIL_LOG_RESULTS', false),
     ],
 
     // Security features

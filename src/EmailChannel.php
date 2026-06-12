@@ -735,35 +735,4 @@ class EmailChannel implements RichNotificationChannel
     {
         return $this->formatter;
     }
-
-    /**
-     * Get the current size of the email queue
-     *
-     * Returns the number of emails currently pending in the framework's queue system.
-     * Uses the built-in QueueManager to get accurate queue statistics.
-     *
-     * @return int|null Number of emails in queue, or null if queue system not available
-     */
-    public function getQueueSize(): ?int
-    {
-        try {
-            // Check if queue feature is enabled in framework config
-            $queueConfig = config($this->context, 'queue');
-            if (empty($queueConfig) || !($queueConfig['enabled'] ?? true)) {
-                return 0;
-            }
-
-            // Use the framework's QueueManager to get queue size
-            $container = app($this->context);
-            if (!$container->has('Glueful\\Queue\\QueueManager')) {
-                return 0;
-            }
-
-            $queueManager = $container->get('Glueful\\Queue\\QueueManager');
-            return $queueManager->size('emails'); // Get size of emails queue
-        } catch (\Exception $e) {
-            $this->logger->error('Failed to get email queue size: ' . $e->getMessage());
-            return null;
-        }
-    }
 }

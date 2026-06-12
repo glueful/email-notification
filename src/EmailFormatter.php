@@ -102,12 +102,6 @@ class EmailFormatter
         $this->defaultOptions['extension'] = $templateConfig['extension'] ?? '.html';
         $this->defaultOptions['cache_enabled'] = $templateConfig['cache_enabled'] ?? true;
         $this->defaultOptions['cache_path'] = $templateConfig['cache_path'] ?? null;
-
-        // Processing options from extension config
-        $processingOptions = $extensionTemplates['processing'] ?? [];
-        $this->defaultOptions['minify_html'] = $processingOptions['minify_html'] ?? false;
-        $this->defaultOptions['inline_css'] = $processingOptions['inline_css'] ?? true;
-        $this->defaultOptions['auto_text_version'] = $processingOptions['auto_text_version'] ?? true;
     }
 
     /**
