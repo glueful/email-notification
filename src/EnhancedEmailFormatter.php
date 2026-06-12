@@ -123,7 +123,16 @@ class EnhancedEmailFormatter extends EmailFormatter
      * branch share an identical check; when called directly without one, a default validator
      * confined to the application storage directory is built from the context.
      *
-     * @param string $templateName Template name
+     * Template selection: $templateName is fed into the parent formatter's selection key
+     * ($data['template_name']) so the named template is actually rendered -- previously this
+     * parameter was ignored and the template fell back to the default. Precedence: an explicit
+     * $data['template_name'] set by the caller WINS over $templateName (the caller named the
+     * template directly; $templateName is the channel's positional default). cc/bcc and reply-to
+     * are NOT applied here -- the channel owns that single shared code path so the enhanced and
+     * standard branches cannot drift.
+     *
+     * @param string $templateName Template name (used as the formatter's selection key unless the
+     *                             caller set an explicit $data['template_name'])
      * @param array<string, mixed> $data Email data
      * @param AttachmentPathValidator|null $attachmentValidator Path confinement validator
      * @return Email Configured Email object
@@ -136,6 +145,13 @@ class EnhancedEmailFormatter extends EmailFormatter
     ): Email {
         // Fail closed even on the direct-call path: default to a storage-confined validator.
         $attachmentValidator ??= AttachmentPathValidator::fromConfig($this->enhancedContext, []);
+
+        // Honor $templateName by feeding it into the parent's selection key. An explicit
+        // template_name already in $data wins (caller named it directly); otherwise $templateName
+        // selects the template instead of silently falling back to the default.
+        if (!isset($data['template_name'])) {
+            $data['template_name'] = $templateName;
+        }
 
         // Use parent formatter to get HTML and text content
         $formatted = $this->format($data, $data['notifiable'] ?? new DummyNotifiable());

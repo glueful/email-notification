@@ -509,6 +509,46 @@ class EmailChannel implements RichNotificationChannel
     }
 
     /**
+     * Apply cc/bcc (from message data) and reply-to (from channel config) to an Email.
+     *
+     * Single source of truth shared by both branches of {@see self::createEmail()} -- the enhanced
+     * template branch and the standard branch -- so neither can silently drop cc/bcc/reply-to or
+     * diverge in how it sets them. There is currently no per-message reply_to; reply-to comes only
+     * from `config['reply_to']`, matching the historical standard-branch behavior exactly.
+     *
+     * Policy note: the cc/bcc applied here are the same values {@see self::firstDisallowedRecipient()}
+     * validated in {@see self::sendNotification()} BEFORE createEmail() runs, so this does not
+     * bypass the recipient-domain allow/block policy.
+     *
+     * @param array<string, mixed> $data The email data carrying optional cc/bcc lists
+     */
+    private function applyCcBccReplyTo(Email $email, array $data): void
+    {
+        // Set CC if provided
+        if (!empty($data['cc'])) {
+            foreach ((array)$data['cc'] as $cc) {
+                $email->addCc($cc);
+            }
+        }
+
+        // Set BCC if provided
+        if (!empty($data['bcc'])) {
+            foreach ((array)$data['bcc'] as $bcc) {
+                $email->addBcc($bcc);
+            }
+        }
+
+        // Set reply-to if configured
+        if (!empty($this->config['reply_to']['address'])) {
+            $replyToAddress = new Address(
+                $this->config['reply_to']['address'],
+                $this->config['reply_to']['name'] ?? ''
+            );
+            $email->replyTo($replyToAddress);
+        }
+    }
+
+    /**
      * Create a Symfony Email object from email data
      *
      * @param array<string, mixed> $data The email data
@@ -544,6 +584,13 @@ class EmailChannel implements RichNotificationChannel
                 $email->from($fromAddress);
             }
 
+            // cc/bcc/reply-to go through the SAME helper as the standard branch below, so the two
+            // paths can't drift. The enhanced formatter deliberately leaves these to the channel.
+            // Safe vs. policy: cc/bcc here are the SAME values firstDisallowedRecipient() validated
+            // in sendNotification() before createEmail() ran, so applying them does not bypass the
+            // domain allow/block policy.
+            $this->applyCcBccReplyTo($email, $data);
+
             return $email;
         }
 
@@ -560,28 +607,10 @@ class EmailChannel implements RichNotificationChannel
         // Set primary recipient
         $email->to($recipientEmail);
 
-        // Set CC if provided
-        if (!empty($data['cc'])) {
-            foreach ((array)$data['cc'] as $cc) {
-                $email->addCc($cc);
-            }
-        }
-
-        // Set BCC if provided
-        if (!empty($data['bcc'])) {
-            foreach ((array)$data['bcc'] as $bcc) {
-                $email->addBcc($bcc);
-            }
-        }
-
-        // Set reply-to if configured
-        if (!empty($this->config['reply_to']['address'])) {
-            $replyToAddress = new Address(
-                $this->config['reply_to']['address'],
-                $this->config['reply_to']['name'] ?? ''
-            );
-            $email->replyTo($replyToAddress);
-        }
+        // cc/bcc (from data) and reply-to (from config) -- shared with the enhanced branch above
+        // via one helper so the two paths can't differ. cc/bcc were already validated against the
+        // domain policy in sendNotification() before this method ran.
+        $this->applyCcBccReplyTo($email, $data);
 
         // Set subject
         $email->subject($data['subject'] ?? '');
