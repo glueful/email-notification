@@ -721,15 +721,16 @@ the path — never a silent skip.
 ```php
 use Glueful\Extensions\EmailNotification\EmailNotificationProvider;
 
-$provider = app()->get(EmailNotificationProvider::class);
+$provider = app($context, EmailNotificationProvider::class);
 
 // Check provider configuration status
 $isConfigured = $provider->isEmailProviderConfigured();
-
-// Get aggregate metrics (sent/failed counts, success rate, read rate) derived from the
-// framework `notifications` table. Returns zeroed defaults if that table is unavailable.
-$metrics = $provider->getMetrics();
 ```
+
+Delivery metrics (per-channel delivery times, retry counts and distributions) are owned by the
+framework's notification system — use `NotificationService::getMetricsService()`
+(`Glueful\Notifications\Services\NotificationMetricsService`), which is fed by the structured
+`NotificationResult` this channel returns for every send.
 
 ### Debug Mode
 
