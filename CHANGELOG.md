@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-06-13
+
 ### Security
 - **The recipient domain policy now covers every recipient and blocks subdomains.** Only the primary recipient was checked against `security.allowed_domains`/`blocked_domains`; cc/bcc addresses were added to the message unchecked, so an allowlist meant to stop outbound leaks was bypassable via a cc field. Every recipient (primary, cc, bcc) is now validated fail-closed — any disallowed (or non-string) entry returns the non-retryable `blocked_domain` failure. The blocklist also gains subdomain matching (blocking `evil.com` now blocks `sub.evil.com`); the allowlist deliberately stays exact-match, since widening it to subdomains would silently loosen the permitted set.
 
