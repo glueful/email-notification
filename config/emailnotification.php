@@ -21,35 +21,9 @@ return [
             'alert' => 'alert',
             'default' => 'default',
         ],
-        'processing' => [
-            'minify_html' => env('MAIL_MINIFY_HTML', false),
-            'inline_css' => env('MAIL_INLINE_CSS', true),
-            'auto_text_version' => true,
-        ],
         'extension_variables' => [
             'extension_version' => 'dev', // Overridden at runtime from composer.json
             'powered_by' => 'Glueful EmailNotification Extension',
-        ],
-    ],
-
-    // Queue integration
-    'queue' => [
-        'enabled' => env('MAIL_QUEUE_ENABLED', true),
-        'connection' => env('MAIL_QUEUE_CONNECTION', 'default'),
-        'queue_name' => env('MAIL_QUEUE_NAME', 'emails'),
-        'retry_after' => env('MAIL_QUEUE_RETRY_AFTER', 90),
-        'max_attempts' => env('MAIL_QUEUE_MAX_ATTEMPTS', 3),
-        'priority' => env('MAIL_QUEUE_PRIORITY', 5),
-        'timeout' => env('MAIL_QUEUE_TIMEOUT', 120),
-    ],
-
-    // Event handling
-    'events' => [
-        'enabled' => env('MAIL_EVENTS_ENABLED', true),
-        'fire_events' => [
-            'email.sending' => true,
-            'email.sent' => true,
-            'email.failed' => true,
         ],
     ],
 
@@ -63,20 +37,45 @@ return [
     ],
 
     // Debug and development
+    // debug.enabled: when true, beforeSend() logs each outgoing email's recipient/subject/type
+    // at debug level (no payload values).
     'debug' => [
         'enabled' => env('MAIL_DEBUG', false),
-        'log_all_emails' => env('MAIL_LOG_ALL', false),
-        'preview_mode' => env('MAIL_PREVIEW_MODE', false),
-        'test_email' => env('MAIL_TEST_EMAIL', null),
+    ],
+
+    // After-send result logging
+    // logging.enabled: when true, the provider's afterSend() hook logs the outcome of each email
+    // (recipient, subject, notification type only -- no payload values) at info/error level.
+    'logging' => [
+        'enabled' => env('MAIL_LOG_RESULTS', false),
     ],
 
     // Security features
-    // Recipient domain policy, enforced by EmailChannel before sending:
+    // Recipient domain policy, enforced by EmailChannel before sending. EVERY recipient is
+    // checked -- the primary recipient plus all cc/bcc addresses -- so an allowlist cannot be
+    // bypassed via a cc/bcc field; any disallowed address fails the whole send closed.
     //   - blocked_domains: denylist (a matching recipient domain is rejected)
     //   - allowed_domains: allowlist (when set, only matching recipient domains pass)
+    // Matching is ASYMMETRIC by design: blocked_domains also matches subdomains (blocking
+    // 'evil.com' also blocks 'sub.evil.com'), while allowed_domains is EXACT-match only
+    // (allowlisting 'company.com' does NOT permit 'sub.company.com'). Subdomain-widening the
+    // allowlist would silently permit recipients beyond what was explicitly listed, so the
+    // allowlist stays strict.
     // Each accepts a comma-separated string (env) or an array.
+    //
+    // Attachment path confinement, enforced by EmailChannel/EnhancedEmailFormatter. Attachment
+    // and embedded-image paths come from notification data (potentially user-influenced); they are
+    // accepted only when realpath() resolves them INSIDE one of these base directories, so a caller
+    // cannot attach arbitrary host files (e.g. /etc/passwd, .env, private keys) and exfiltrate them.
+    //   - attachment_allowed_paths: array of allowed base directories. Each is normalized through
+    //     realpath() and matched with a trailing separator so a sibling dir cannot pass for a child
+    //     ('/app/storage-evil' does NOT satisfy base '/app/storage'). A rejected path is a
+    //     non-retryable 'invalid_attachment' failure (never silently skipped). Default when null /
+    //     empty: the application's storage directory (storage_path()).
     'security' => [
         'allowed_domains' => env('MAIL_ALLOWED_DOMAINS', null),
         'blocked_domains' => env('MAIL_BLOCKED_DOMAINS', null),
+        // null/empty => confine to the application storage directory.
+        'attachment_allowed_paths' => null,
     ],
 ];

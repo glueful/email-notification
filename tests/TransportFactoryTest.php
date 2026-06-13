@@ -48,4 +48,24 @@ final class TransportFactoryTest extends TestCase
         self::assertArrayHasKey('smtp', $providers);
         self::assertArrayHasKey('null', $providers);
     }
+
+    public function test_invalid_smtp_host_with_smuggled_authority_throws(): void
+    {
+        // "smtp.legit.com@evil.com" would split the DSN authority and redirect mail; reject it.
+        $this->expectException(\InvalidArgumentException::class);
+        TransportFactory::create([
+            'default' => 'smtp',
+            'mailers' => ['smtp' => ['transport' => 'smtp', 'host' => 'smtp.legit.com@evil.com']],
+        ]);
+    }
+
+    public function test_ipv6_bracketed_host_is_accepted(): void
+    {
+        $transport = TransportFactory::create([
+            'default' => 'smtp',
+            'mailers' => ['smtp' => ['transport' => 'smtp', 'host' => '[::1]', 'port' => 1025]],
+        ]);
+
+        self::assertInstanceOf(TransportInterface::class, $transport);
+    }
 }

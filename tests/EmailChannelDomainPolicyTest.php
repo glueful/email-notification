@@ -74,4 +74,64 @@ final class EmailChannelDomainPolicyTest extends TestCase
 
         self::assertTrue($result->success);
     }
+
+    public function test_cc_to_a_blocked_domain_is_rejected(): void
+    {
+        $result = $this->channel(['blocked_domains' => 'spam.test, evil.test'])
+            ->sendNotification(
+                new FakeNotifiable('user@allowed.test'),
+                ['subject' => 'Hi', 'cc' => 'leak@evil.test']
+            );
+
+        self::assertFalse($result->success);
+        self::assertSame('blocked_domain', $result->errorCode);
+        self::assertFalse($result->retryable);
+    }
+
+    public function test_bcc_to_a_non_allowlisted_domain_is_rejected(): void
+    {
+        $result = $this->channel(['allowed_domains' => 'yourcompany.com'])
+            ->sendNotification(
+                new FakeNotifiable('user@yourcompany.com'),
+                ['subject' => 'Hi', 'bcc' => ['leak@other.com']]
+            );
+
+        self::assertFalse($result->success);
+        self::assertSame('blocked_domain', $result->errorCode);
+        self::assertFalse($result->retryable);
+    }
+
+    public function test_blocklist_rejects_subdomains_of_a_blocked_domain(): void
+    {
+        $result = $this->channel(['blocked_domains' => 'evil.com'])
+            ->sendNotification(new FakeNotifiable('user@sub.evil.com'), ['subject' => 'Hi']);
+
+        self::assertFalse($result->success);
+        self::assertSame('blocked_domain', $result->errorCode);
+    }
+
+    public function test_allowlist_is_exact_match_and_rejects_subdomains(): void
+    {
+        // Pins the asymmetry: blocklist matches subdomains, allowlist does not.
+        $result = $this->channel(['allowed_domains' => 'company.com'])
+            ->sendNotification(new FakeNotifiable('user@sub.company.com'), ['subject' => 'Hi']);
+
+        self::assertFalse($result->success);
+        self::assertSame('blocked_domain', $result->errorCode);
+    }
+
+    public function test_cc_and_bcc_to_allowed_domains_still_send(): void
+    {
+        $result = $this->channel(['allowed_domains' => 'yourcompany.com'])
+            ->sendNotification(
+                new FakeNotifiable('user@yourcompany.com'),
+                [
+                    'subject' => 'Hi',
+                    'cc' => 'teammate@yourcompany.com',
+                    'bcc' => ['manager@yourcompany.com'],
+                ]
+            );
+
+        self::assertTrue($result->success, 'allowlisted cc/bcc recipients should pass and send');
+    }
 }

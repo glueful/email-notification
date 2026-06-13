@@ -2,7 +2,7 @@
 
 ## Overview
 
-The EmailNotification extension provides a modern email delivery system for the Glueful Framework's notification system. Built on **Symfony Mailer**, it features robust multi-provider support, queue integration, and an extensible transport architecture.
+The EmailNotification extension provides a modern email delivery system for the Glueful Framework's notification system. Built on **Symfony Mailer**, it features robust multi-provider support, failover, and an extensible transport architecture.
 
 > Built on Symfony Mailer with modern provider-bridge support. Implements the framework's notification channel contract (`RichNotificationChannel`) with structured `NotificationResult`s.
 
@@ -16,11 +16,11 @@ The EmailNotification extension provides a modern email delivery system for the 
 - ✅ **Modern Symfony Mailer Integration** - Enterprise-grade email infrastructure
 - ✅ **Multi-Provider Support** - Brevo, SendGrid, Mailgun, Amazon SES, Postmark, and custom providers
 - ✅ **Provider Bridges** - Native API integrations for optimal performance and reliability
-- ✅ **Advanced Queue System** - Integration with Glueful's database/Redis queue system
-- ✅ **Failover & Load Balancing** - Multiple transport support with automatic failover
+- ✅ **Failover** - Multiple transport support with automatic failover
 - ✅ **Extensible Architecture** - Support for any Symfony Mailer provider bridge
-- ✅ **Advanced Template System** - Responsive templates with variable substitution and conditional logic
-- ✅ **Recipient Domain Policy** - Allow-list / block-list enforcement on recipient domains before send
+- ✅ **Advanced Template System** - Responsive templates with auto-escaped variable substitution and conditional logic
+- ✅ **Recipient Domain Policy** - Allow-list / block-list enforcement on every recipient (primary, cc, bcc) before send
+- ✅ **Attachment Path Confinement** - Attachment/embed paths confined to allowed directories
 - ✅ **Developer Experience** - Clear error messages, debugging tools, and type safety
 
 ## Requirements
@@ -129,10 +129,13 @@ MAIL_PASSWORD=your-app-password
 MAIL_FROM=noreply@example.com
 MAIL_FROM_NAME=Your Application
 
-# Performance & Queue Settings  
-MAIL_QUEUE_ENABLED=true
-MAIL_RATE_LIMIT_PER_MINUTE=60
-MAIL_DEBUG=false
+# Extension behavior
+MAIL_DEBUG=false              # debug-log each outgoing email (recipient/subject/type only)
+MAIL_LOG_RESULTS=false        # info/error-log each send outcome (recipient/subject/type only)
+
+# Recipient domain policy (optional; see Security Features)
+# MAIL_ALLOWED_DOMAINS=yourcompany.com,partner.com
+# MAIL_BLOCKED_DOMAINS=example.com,spam.test
 ```
 
 ### Services Configuration
@@ -382,58 +385,32 @@ $notificationService->send(
 );
 ```
 
-## Queue Integration
+## Asynchronous Delivery
 
-### Framework Queue System
+This extension does not manage its own queue. Whether emails are sent synchronously or
+queued is decided by the framework's notification dispatcher — push notifications onto the
+framework queue at the dispatch layer and run workers (`php glueful queue:work`) per the
+framework's queue documentation. The channel itself sends a single message when invoked.
 
-The extension integrates with Glueful's robust queue system:
+### Retry tuning
 
-```php
-// Emails are automatically queued when MAIL_QUEUE_ENABLED=true
-// The framework's SendNotification job handles email processing
-
-// Monitor queue size
-use Glueful\Extensions\EmailNotification\EmailChannel;
-
-$emailChannel = container()->get(EmailChannel::class);
-$queueSize = $emailChannel->getQueueSize(); // Returns emails in queue
-
-// Start queue workers
-// php glueful queue:work --queue=emails
-```
-
-### Queue Configuration
-
-Configure email queue processing:
-
-```php
-// In config/queue.php
-'queues' => [
-    'emails' => [
-        'workers' => env('EMAIL_QUEUE_WORKERS', 2),
-        'max_workers' => env('EMAIL_QUEUE_MAX_WORKERS', 4),
-        'priority' => 5,
-        'timeout' => env('EMAIL_QUEUE_TIMEOUT', 120),
-        'auto_scale' => true,
-    ],
-],
-```
+Delivery-failure retry behavior is configured under `emailnotification.retry` (env
+`MAIL_RETRY_ENABLED`, `MAIL_RETRY_MAX_ATTEMPTS`, `MAIL_RETRY_DELAY`, `MAIL_RETRY_BACKOFF`,
+`MAIL_RETRY_JITTER`). On boot the extension surfaces this under the framework's channel-agnostic
+`notifications.retry` key (Framework 1.51.0+), so the core retry service picks it up. A
+transport failure returns a retryable `transport_exception` result; configuration errors return
+the non-retryable `transport_misconfigured` result and are not retried.
 
 ## Transport Features
 
 ### Multi-Transport Support
 
-Configure failover and load balancing:
+Configure failover so a send falls through to the next mailer when one is unavailable:
 
 ```php
 // Failover configuration
 'failover' => [
     'mailers' => ['brevo', 'sendgrid', 'smtp'],
-],
-
-// Round-robin load balancing
-'round_robin' => [
-    'mailers' => ['ses', 'mailgun'],
 ],
 ```
 
@@ -456,7 +433,7 @@ The extension provides a flexible template system with built-in responsive templ
 
 ### Built-in Templates
 
-The extension includes 5 professionally designed, responsive email templates:
+The extension includes 6 professionally designed, responsive email templates:
 
 #### 1. Default Template (`default.html`)
 - **Use Case**: General notifications, alerts, and multi-purpose emails
@@ -483,6 +460,11 @@ The extension includes 5 professionally designed, responsive email templates:
 - **Features**: Verification codes, confirmation links
 - **Variables**: `{{user_name}}`, `{{verification_code}}`, `{{verification_url}}`, `{{expiry_time}}`
 
+#### 6. Two-Factor PIN Template (`two-factor-pin.html`)
+- **Use Case**: Two-factor authentication one-time codes
+- **Features**: Prominent PIN display, expiry warning
+- **Variables**: `{{user_name}}`, `{{otp}}`, `{{expiry_minutes}}`
+
 ### Custom Templates
 
 You can add your own email templates and customize the template system through configuration.
@@ -505,10 +487,6 @@ Configure custom templates in `config/services.php`:
             // Your custom templates directory
             dirname(__DIR__) . '/templates/email',
         ],
-        
-        // Template caching for performance
-        'cache_enabled' => env('MAIL_TEMPLATE_CACHE', true),
-        'cache_path' => env('MAIL_TEMPLATE_CACHE_PATH', dirname(__DIR__) . '/storage/cache/mail-templates'),
         
         // Layout and partials
         'default_layout' => env('MAIL_DEFAULT_LAYOUT', 'layout'),
@@ -626,6 +604,14 @@ Configure custom templates in `config/services.php`:
 - Default values: `{{variable_name|default_value}}`
 - Nested variables: `{{user.profile.name}}`
 
+> **Auto-escaping (security):** every `{{variable}}` (and its default literal) is HTML-escaped
+> with `htmlspecialchars(ENT_QUOTES | ENT_HTML5)`, so notification data (display names, messages)
+> cannot inject markup into outgoing mail. For slots that intentionally receive pre-rendered HTML,
+> use the **raw** triple-mustache `{{{variable}}}` — the shipped layout's `{{{content}}}` is the
+> only such slot; only use it for values you fully control. The `action_url`/`reset_url` values are
+> blanked unless their scheme is `http`/`https` (relative URLs pass; `javascript:`/`data:` and
+> malformed URLs are rejected).
+
 **Conditional Blocks**:
 ```html
 {{#if show_discount}}
@@ -698,13 +684,35 @@ MAIL_ALLOWED_DOMAINS=yourcompany.com,partner.com
 With neither set, all recipient domains are allowed. Both also accept an array in
 `config/emailnotification.php` under `security.allowed_domains` / `security.blocked_domains`.
 
+The policy is enforced on **every** recipient — the primary address plus all cc/bcc entries —
+so an allowlist cannot be bypassed via a cc/bcc field; any disallowed (or non-string) entry
+fails the whole send closed. Matching is **asymmetric by design**: the blocklist also matches
+subdomains (blocking `evil.com` blocks `sub.evil.com`), while the allowlist is **exact-match**
+only (allowlisting `company.com` does **not** permit `sub.company.com`).
+
+### Attachment Path Confinement
+
+Attachment and embedded-image paths come from notification data, so they are confined to
+allowed base directories before reaching Symfony: a path is accepted only when `realpath()`
+resolves it inside an allowed base (sibling-dir-safe — `/app/storage-evil` cannot pass for
+`/app/storage`). Configure via `security.attachment_allowed_paths` (array) in
+`config/emailnotification.php`; when null/empty it defaults to the application storage directory.
+A rejected path is a loud, non-retryable `invalid_attachment` failure with an ERROR log naming
+the path — never a silent skip.
+
 ### Transport security
 
 - **Symfony Mailer**: transport built on Symfony's mailer security.
 - **Provider isolation**: isolated transport creation per send.
+- **Fail-loud misconfiguration**: a missing SMTP host, missing provider-bridge credentials, or
+  any transport-factory failure is a non-retryable `transport_misconfigured` failure (ERROR log,
+  config keys only) — the channel never silently falls back to a null sink that would report
+  success while discarding mail. An explicitly configured null sink (`transport: 'null'` or a
+  `null://` DSN) remains supported for development.
 - **Error sanitization**: send failures return a structured `NotificationResult` (error code +
-  message) and never throw SMTP credentials into the dispatcher; failures are logged via
-  `LogManager`.
+  message) and never throw SMTP credentials into the dispatcher. Logs never carry payload values
+  (OTP pins, reset tokens/URLs, PII) — only payload keys plus the `subject`/`type`/`template_name`
+  identifiers; diagnostics (`getExtensionInfo()`) return a credential-free config summary.
 
 ## Monitoring and Debugging
 
@@ -713,23 +721,25 @@ With neither set, all recipient domains are allowed. Both also accept an array i
 ```php
 use Glueful\Extensions\EmailNotification\EmailNotificationProvider;
 
-$provider = app()->get(EmailNotificationProvider::class);
+$provider = app($context, EmailNotificationProvider::class);
 
 // Check provider configuration status
 $isConfigured = $provider->isEmailProviderConfigured();
-
-// Get metrics (success rate, queue size, etc.)
-$metrics = $provider->getMetrics();
 ```
+
+Delivery metrics (per-channel delivery times, retry counts and distributions) are owned by the
+framework's notification system — use `NotificationService::getMetricsService()`
+(`Glueful\Notifications\Services\NotificationMetricsService`), which is fed by the structured
+`NotificationResult` this channel returns for every send.
 
 ### Debug Mode
 
 Enable detailed logging for troubleshooting:
 
 ```env
-EMAIL_DEBUG=true
+MAIL_DEBUG=true          # debug-log each outgoing email (recipient/subject/type only)
+MAIL_LOG_RESULTS=true    # info/error-log each send outcome
 APP_DEBUG=true
-MAIL_LOG_CHANNEL=mail
 ```
 
 ## Migration from PHPMailer
@@ -778,13 +788,10 @@ MAIL_LOG_CHANNEL=mail
    MAIL_ENCRYPTION=tls         # not MAIL_SECURE
    ```
 
-4. **Test Configuration**:
+4. **Verify Configuration**:
    ```bash
-   # Test email sending
-   php glueful test:email
-   
-   # Check extension health
-   php glueful extensions info EmailNotification
+   # Confirm the extension is discovered/enabled and view its metadata
+   php glueful extensions:info email-notification
    ```
 
 ## Troubleshooting
@@ -796,10 +803,10 @@ MAIL_LOG_CHANNEL=mail
    - Check configuration structure in `services.php`
    - Review error logs for specific transport issues
 
-2. **Queue Not Processing**
-   - Ensure `MAIL_QUEUE_ENABLED=true`
-   - Start queue workers: `php glueful queue:work --queue=emails`
-   - Check queue configuration in `config/queue.php`
+2. **Emails Not Sending Asynchronously**
+   - Async delivery is governed by the framework's notification dispatcher/queue, not this
+     extension — see the framework queue documentation
+   - Start queue workers: `php glueful queue:work`
 
 3. **Provider Bridge Issues**
    - Verify API credentials are correct
@@ -813,16 +820,16 @@ MAIL_LOG_CHANNEL=mail
 
 ### Health Checks
 
-Use built-in health checks to diagnose issues:
+This extension registers no HTTP routes. Diagnose configuration from PHP/CLI instead:
+
+```php
+$provider = app()->get(\Glueful\Extensions\EmailNotification\EmailNotificationProvider::class);
+$provider->isEmailProviderConfigured();   // bool — credentials/transport/from validated
+$provider->getExtensionInfo();            // credential-free config summary + feature flags
+```
 
 ```bash
-# Check email system health
-curl -H "Authorization: Bearer your-token" \
-     http://your-domain.com/health/email
-
-# View email metrics
-curl -H "Authorization: Bearer your-token" \
-     http://your-domain.com/metrics/email
+php glueful extensions:info email-notification
 ```
 
 ## Provider-Specific Setup
@@ -877,5 +884,4 @@ For issues, feature requests, or questions about the EmailNotification extension
 ---
 
 **📚 Documentation**: [Glueful Framework Documentation](https://docs.glueful.com)  
-**🔧 Provider Bridges**: [Symfony Mailer Bridges](https://symfony.com/doc/current/mailer.html#using-a-3rd-party-transport)  
-**⚡ Queue System**: [Glueful Queue Documentation](https://docs.glueful.com/queue)
+**🔧 Provider Bridges**: [Symfony Mailer Bridges](https://symfony.com/doc/current/mailer.html#using-a-3rd-party-transport)

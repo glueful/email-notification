@@ -9,7 +9,6 @@ use Glueful\Logging\LogManager;
 use Glueful\Notifications\Contracts\Notifiable;
 use Glueful\Notifications\Contracts\RichNotificationChannel;
 use Glueful\Notifications\Results\NotificationResult;
-use Symfony\Component\Mailer\Transport;
 use Symfony\Component\Mailer\Transport\TransportInterface;
 use Symfony\Component\Mime\Email;
 use Symfony\Component\Mime\Address;
@@ -45,6 +44,11 @@ class EmailChannel implements RichNotificationChannel
      */
     private LogManager $logger;
     private ApplicationContext $context;
+
+    /**
+     * @var AttachmentPathValidator|null Lazily-built attachment/embed path confinement validator.
+     */
+    private ?AttachmentPathValidator $attachmentValidator = null;
 
     /**
      * EmailChannel constructor
@@ -105,7 +109,8 @@ class EmailChannel implements RichNotificationChannel
      * Send the notification and return a structured {@see NotificationResult}.
      *
      * Captures the Symfony provider message id (when the transport returns one) and the send
-     * latency, and maps failure modes to stable error codes: `no_recipient` (non-retryable) and
+     * latency, and maps failure modes to stable error codes: `no_recipient` (non-retryable),
+     * `blocked_domain` (non-retryable), `transport_misconfigured` (non-retryable) and
      * `transport_exception` (retryable).
      *
      * @param Notifiable $notifiable The entity receiving the notification
@@ -127,10 +132,15 @@ class EmailChannel implements RichNotificationChannel
 
         // Enforce the configured domain policy (security.allowed_domains / blocked_domains)
         // before doing any work -- a disallowed recipient is a permanent policy failure.
-        if (!$this->isRecipientDomainAllowed((string) $recipientEmail)) {
+        // Validate EVERY recipient that will end up on the message, not just the primary one:
+        // cc/bcc are added unchecked in createEmail(), so an allowlist meant to stop outbound
+        // leaks would otherwise be bypassable by anyone able to set a cc/bcc field. Fail closed.
+        $policyFailure = $this->firstDisallowedRecipient((string) $recipientEmail, $data);
+        if ($policyFailure !== null) {
             return NotificationResult::failure(
                 errorCode: 'blocked_domain',
-                errorMessage: 'Recipient domain is not permitted by the mail security policy.',
+                // Name the offending address class, but do not echo the full recipient list.
+                errorMessage: $policyFailure . ' is not permitted by the mail security policy.',
                 retryable: false
             );
         }
@@ -151,13 +161,33 @@ class EmailChannel implements RichNotificationChannel
                 providerMessageId: $sent?->getMessageId(),
                 latencyMs: $latencyMs
             );
-        } catch (TransportExceptionInterface $e) {
+        } catch (InvalidAttachmentException $e) {
             $latencyMs = (int) round((microtime(true) - $start) * 1000);
 
-            // Log the error using LogManager
-            $this->logger->error('Email notification failed: ' . $e->getMessage(), [
+            // An attachment/embed path escaped the allowed directories -- a permanent policy
+            // failure, never retried. Log the rejected path by name (loud, not silent) so the
+            // exfiltration attempt is auditable; the path is the caller-supplied value, not a
+            // credential, so it is safe to record.
+            $this->logger->error('Email attachment rejected by path policy: ' . $e->getMessage(), [
                 'notifiable_id' => $notifiable->getNotifiableId(),
-                'notification_data' => $data,
+                'rejected_path' => $e->rejectedPath,
+            ]);
+
+            return NotificationResult::failure(
+                errorCode: 'invalid_attachment',
+                errorMessage: $e->getMessage(),
+                retryable: false,
+                latencyMs: $latencyMs
+            );
+        } catch (TransportMisconfiguredException $e) {
+            $latencyMs = (int) round((microtime(true) - $start) * 1000);
+
+            // Configuration error, not a transient delivery failure -- do not retry. Log the
+            // config KEYS only: this config carries SMTP/provider credentials whose VALUES must
+            // never reach the logs.
+            $this->logger->error('Email transport misconfigured: ' . $e->getMessage(), [
+                'notifiable_id' => $notifiable->getNotifiableId(),
+                'config_keys' => array_keys($this->config),
                 'exception' => [
                     'message' => $e->getMessage(),
                     'code' => $e->getCode(),
@@ -165,6 +195,30 @@ class EmailChannel implements RichNotificationChannel
                     'line' => $e->getLine()
                 ]
             ]);
+
+            return NotificationResult::failure(
+                errorCode: 'transport_misconfigured',
+                errorMessage: $e->getMessage(),
+                retryable: false,
+                latencyMs: $latencyMs
+            );
+        } catch (TransportExceptionInterface $e) {
+            $latencyMs = (int) round((microtime(true) - $start) * 1000);
+
+            // Transport failures are frequent/transient, so this path runs routinely. The raw
+            // notification payload carries OTP pins, password-reset tokens/URLs and PII -- none of
+            // it key-named in a way the log sink's key-based redaction would catch -- so it must
+            // NEVER be logged. Record only a safe, value-free subset (see safeNotificationLogContext).
+            $this->logger->error('Email notification failed: ' . $e->getMessage(), array_merge(
+                ['notifiable_id' => $notifiable->getNotifiableId()],
+                $this->safeNotificationLogContext($data),
+                ['exception' => [
+                    'message' => $e->getMessage(),
+                    'code' => $e->getCode(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine()
+                ]]
+            ));
 
             return NotificationResult::failure(
                 errorCode: 'transport_exception',
@@ -176,12 +230,81 @@ class EmailChannel implements RichNotificationChannel
     }
 
     /**
+     * Build a safe, value-free log context describing a notification payload.
+     *
+     * Email payloads carry OTP pins, password-reset tokens/URLs and PII, so their VALUES must never
+     * reach the logs (the log sink only redacts by key NAME, and these are not key-named). Only
+     * operator-authored / identifier fields are echoed verbatim: `subject` (operator-authored),
+     * `type` and `template_name` (identifiers). Everything else is reduced to its KEYS so the shape
+     * of the payload is still auditable without exposing any sensitive content.
+     *
+     * @param array<string, mixed> $data The raw notification data
+     * @return array<string, mixed> Safe context fragment suitable for logging
+     */
+    private function safeNotificationLogContext(array $data): array
+    {
+        $context = ['notification_keys' => array_keys($data)];
+
+        foreach (['subject', 'type', 'template_name'] as $safeField) {
+            if (isset($data[$safeField]) && is_scalar($data[$safeField])) {
+                $context[$safeField] = $data[$safeField];
+            }
+        }
+
+        return $context;
+    }
+
+    /**
+     * Find the first recipient that the mail security policy rejects, checking the primary
+     * recipient plus every cc/bcc entry. Returns a short description of the offending address
+     * class (e.g. "Recipient cc:user@evil.test") for the failure message, or null if all pass.
+     *
+     * cc/bcc are cast `(array)` in {@see self::createEmail()}, so they may arrive as a string or
+     * an array. Each entry must be a string: a non-string entry (e.g. a Symfony Address object or
+     * malformed structure) cannot be domain-checked here and is treated as a policy failure
+     * (fail closed) rather than passed through unchecked.
+     *
+     * @param array<string, mixed> $data Notification data carrying optional cc/bcc lists
+     * @return string|null Offending address class, or null when every recipient is permitted
+     */
+    private function firstDisallowedRecipient(string $recipientEmail, array $data): ?string
+    {
+        if (!$this->isRecipientDomainAllowed($recipientEmail)) {
+            return 'Recipient ' . $recipientEmail;
+        }
+
+        foreach (['cc', 'bcc'] as $field) {
+            if (empty($data[$field])) {
+                continue;
+            }
+
+            foreach ((array) $data[$field] as $address) {
+                // A non-string entry cannot be domain-checked -- fail closed rather than let an
+                // un-validated recipient onto the message.
+                if (!is_string($address) || !$this->isRecipientDomainAllowed($address)) {
+                    $shown = is_string($address) ? $address : '<non-string entry>';
+                    return 'Recipient ' . $field . ':' . $shown;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Whether the recipient's domain is permitted by the configured mail security policy.
      *
      * `security.blocked_domains` is a denylist (a matching domain is rejected);
      * `security.allowed_domains`, when non-empty, is an allowlist (only matching domains pass).
      * Both accept a comma-separated string or an array. With neither configured, all domains
      * are allowed (the prior behavior).
+     *
+     * Matching is deliberately ASYMMETRIC: the blocklist matches subdomains too (a domain is
+     * blocked if it equals an entry OR ends with `'.' . $entry`, so blocking `evil.com` also
+     * blocks `sub.evil.com`), while the allowlist stays EXACT-match. Loosening the allowlist to
+     * subdomains would be a safety regression -- it would silently widen the set of permitted
+     * recipients beyond what was explicitly listed -- so allowlisting `company.com` does NOT
+     * permit `sub.company.com`.
      */
     private function isRecipientDomainAllowed(string $email): bool
     {
@@ -192,7 +315,7 @@ class EmailChannel implements RichNotificationChannel
         $security = is_array($this->config['security'] ?? null) ? $this->config['security'] : [];
 
         $blocked = $this->parseDomainList($security['blocked_domains'] ?? null);
-        if ($domain !== '' && in_array($domain, $blocked, true)) {
+        if ($domain !== '' && $this->domainMatchesWithSubdomains($domain, $blocked)) {
             return false;
         }
 
@@ -202,6 +325,23 @@ class EmailChannel implements RichNotificationChannel
         }
 
         return true;
+    }
+
+    /**
+     * Whether $domain equals any list entry or is a subdomain of one (ends with `'.' . $entry`).
+     * Used for the blocklist only; the allowlist intentionally relies on exact `in_array()`.
+     *
+     * @param array<int, string> $list Lower-cased domain entries
+     */
+    private function domainMatchesWithSubdomains(string $domain, array $list): bool
+    {
+        foreach ($list as $entry) {
+            if ($domain === $entry || str_ends_with($domain, '.' . $entry)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -312,8 +452,15 @@ class EmailChannel implements RichNotificationChannel
      * Build the configured Symfony transport (used directly by {@see self::sendNotification()}
      * so the returned SentMessage's provider message id can be surfaced).
      *
+     * Misconfiguration is fatal here: a silent fall-back to the null transport would make
+     * {@see self::sendNotification()} report success while every message is discarded. Each
+     * failure path throws {@see TransportMisconfiguredException} describing exactly what is
+     * missing; {@see self::sendNotification()} converts that into a non-retryable failure result.
+     * The `null` transport remains supported, but only when a mailer is explicitly configured
+     * with `transport: 'null'` (or a `null://null` DSN) — never as an implicit fallback.
+     *
      * @return TransportInterface Configured transport instance
-     * @throws \Exception If the mailer configuration is missing
+     * @throws TransportMisconfiguredException If the mailer configuration is missing or invalid
      */
     private function createTransport(): TransportInterface
     {
@@ -322,7 +469,7 @@ class EmailChannel implements RichNotificationChannel
 
         // We expect the new multi-mailer configuration
         if (!isset($this->config['mailers'][$defaultMailer])) {
-            throw new \Exception("Mailer configuration not found for: {$defaultMailer}");
+            throw new TransportMisconfiguredException("Mailer configuration not found for: {$defaultMailer}");
         }
 
         $mailerConfig = $this->config['mailers'][$defaultMailer];
@@ -331,10 +478,17 @@ class EmailChannel implements RichNotificationChannel
         $transport = $mailerConfig['transport'] ?? 'smtp';
         $isProviderBridge = strpos($transport, '+') !== false; // e.g., brevo+api, sendgrid+api
 
-        // Validate configuration based on transport type
-        if (!$isProviderBridge && empty($mailerConfig['host'])) {
-            // Fallback to null transport for development environments
-            return Transport::fromDsn('null://null');
+        // Validate configuration based on transport type. A missing host (for SMTP) or missing
+        // credentials (for a provider bridge) is a hard misconfiguration -- fail loudly instead
+        // of silently swallowing mail via the null transport. Mailers explicitly set to the
+        // 'null' transport (or carrying a null:// DSN) are exempt: that is an intentional sink.
+        $isExplicitNull = $transport === 'null'
+            || (is_string($mailerConfig['dsn'] ?? null) && str_starts_with($mailerConfig['dsn'], 'null://'));
+
+        if (!$isExplicitNull && !$isProviderBridge && empty($mailerConfig['host'])) {
+            throw new TransportMisconfiguredException(
+                "SMTP mailer '{$defaultMailer}' is missing a 'host'."
+            );
         }
 
         // For provider bridges, validate they have required credentials
@@ -342,8 +496,10 @@ class EmailChannel implements RichNotificationChannel
             $hasCredentials = !empty($mailerConfig['key']) ||
                              (!empty($mailerConfig['username']) && !empty($mailerConfig['password']));
             if (!$hasCredentials) {
-                // Fallback to null transport if credentials missing
-                return Transport::fromDsn('null://null');
+                throw new TransportMisconfiguredException(
+                    "Provider bridge mailer '{$defaultMailer}' (transport '{$transport}') "
+                    . "is missing credentials (expected 'key', or 'username' and 'password')."
+                );
             }
         }
 
@@ -359,63 +515,43 @@ class EmailChannel implements RichNotificationChannel
 
             // Use the default transport with enhanced provider bridge support
             return \Glueful\Extensions\EmailNotification\TransportFactory::create($this->config);
-        } catch (\Exception $e) {
-            // Log the error for debugging
-            $this->logger->error('Failed to create email transport: ' . $e->getMessage(), [
-                'exception' => $e,
-                'config_keys' => array_keys($this->config)
-            ]);
-
-            // Fallback to null transport for development
-            return Transport::fromDsn('null://null');
+        } catch (\Throwable $e) {
+            // The factory rejected the config (e.g. invalid host, unsupported transport, broken
+            // failover chain). Surface the underlying cause rather than discarding mail silently.
+            throw new TransportMisconfiguredException(
+                'Failed to build email transport: ' . $e->getMessage(),
+                previous: $e
+            );
         }
     }
 
     /**
-     * Create a Symfony Email object from email data
+     * Resolve (and cache) the attachment/embed path confinement validator for this channel.
      *
-     * @param array<string, mixed> $data The email data
-     * @param string $recipientEmail The primary recipient email
-     * @return Email Configured email object
+     * Built from `security.attachment_allowed_paths`, defaulting to the application storage dir.
      */
-    private function createEmail(array $data, string $recipientEmail): Email
+    private function attachmentValidator(): AttachmentPathValidator
     {
-        // Check if we're using EnhancedEmailFormatter
-        if (
-            $this->formatter instanceof \Glueful\Extensions\EmailNotification\EnhancedEmailFormatter
-            && isset($data['template'])
-        ) {
-            // Use enhanced formatter to build email with advanced features
-            $email = $this->formatter->buildEmailFromTemplate($data['template'], $data);
+        return $this->attachmentValidator
+            ??= AttachmentPathValidator::fromConfig($this->context, $this->config);
+    }
 
-            // Override recipient
-            $email->to($recipientEmail);
-
-            // Set from address if not already set
-            if (empty($email->getFrom())) {
-                $fromAddress = new Address(
-                    $this->config['from']['address'],
-                    $this->config['from']['name'] ?? ''
-                );
-                $email->from($fromAddress);
-            }
-
-            return $email;
-        }
-
-        // Standard email creation
-        $email = new Email();
-
-        // Set from address
-        $fromAddress = new Address(
-            $this->config['from']['address'],
-            $this->config['from']['name'] ?? ''
-        );
-        $email->from($fromAddress);
-
-        // Set primary recipient
-        $email->to($recipientEmail);
-
+    /**
+     * Apply cc/bcc (from message data) and reply-to (from channel config) to an Email.
+     *
+     * Single source of truth shared by both branches of {@see self::createEmail()} -- the enhanced
+     * template branch and the standard branch -- so neither can silently drop cc/bcc/reply-to or
+     * diverge in how it sets them. There is currently no per-message reply_to; reply-to comes only
+     * from `config['reply_to']`, matching the historical standard-branch behavior exactly.
+     *
+     * Policy note: the cc/bcc applied here are the same values {@see self::firstDisallowedRecipient()}
+     * validated in {@see self::sendNotification()} BEFORE createEmail() runs, so this does not
+     * bypass the recipient-domain allow/block policy.
+     *
+     * @param array<string, mixed> $data The email data carrying optional cc/bcc lists
+     */
+    private function applyCcBccReplyTo(Email $email, array $data): void
+    {
         // Set CC if provided
         if (!empty($data['cc'])) {
             foreach ((array)$data['cc'] as $cc) {
@@ -438,6 +574,71 @@ class EmailChannel implements RichNotificationChannel
             );
             $email->replyTo($replyToAddress);
         }
+    }
+
+    /**
+     * Create a Symfony Email object from email data
+     *
+     * @param array<string, mixed> $data The email data
+     * @param string $recipientEmail The primary recipient email
+     * @return Email Configured email object
+     * @throws InvalidAttachmentException If an attachment/embed path escapes the allowed dirs
+     */
+    private function createEmail(array $data, string $recipientEmail): Email
+    {
+        // Check if we're using EnhancedEmailFormatter
+        if (
+            $this->formatter instanceof \Glueful\Extensions\EmailNotification\EnhancedEmailFormatter
+            && isset($data['template'])
+        ) {
+            // Use enhanced formatter to build email with advanced features. The same path
+            // confinement validator is handed in so the enhanced branch funnels its
+            // attachment/embed paths through the identical check (throwing InvalidAttachmentException).
+            $email = $this->formatter->buildEmailFromTemplate(
+                $data['template'],
+                $data,
+                $this->attachmentValidator()
+            );
+
+            // Override recipient
+            $email->to($recipientEmail);
+
+            // Set from address if not already set
+            if (empty($email->getFrom())) {
+                $fromAddress = new Address(
+                    $this->config['from']['address'],
+                    $this->config['from']['name'] ?? ''
+                );
+                $email->from($fromAddress);
+            }
+
+            // cc/bcc/reply-to go through the SAME helper as the standard branch below, so the two
+            // paths can't drift. The enhanced formatter deliberately leaves these to the channel.
+            // Safe vs. policy: cc/bcc here are the SAME values firstDisallowedRecipient() validated
+            // in sendNotification() before createEmail() ran, so applying them does not bypass the
+            // domain allow/block policy.
+            $this->applyCcBccReplyTo($email, $data);
+
+            return $email;
+        }
+
+        // Standard email creation
+        $email = new Email();
+
+        // Set from address
+        $fromAddress = new Address(
+            $this->config['from']['address'],
+            $this->config['from']['name'] ?? ''
+        );
+        $email->from($fromAddress);
+
+        // Set primary recipient
+        $email->to($recipientEmail);
+
+        // cc/bcc (from data) and reply-to (from config) -- shared with the enhanced branch above
+        // via one helper so the two paths can't differ. cc/bcc were already validated against the
+        // domain policy in sendNotification() before this method ran.
+        $this->applyCcBccReplyTo($email, $data);
 
         // Set subject
         $email->subject($data['subject'] ?? '');
@@ -457,12 +658,12 @@ class EmailChannel implements RichNotificationChannel
             $email->priority($priority);
         }
 
-        // Embed images if specified
+        // Embed images if specified. Confine every path to the allowed directories first: a
+        // rejected path throws InvalidAttachmentException (fail closed, not silently skipped).
         if (isset($data['embedImages']) && is_array($data['embedImages'])) {
             foreach ($data['embedImages'] as $cid => $path) {
-                if (file_exists($path)) {
-                    $email->embedFromPath($path, $cid);
-                }
+                $this->attachmentValidator()->validate((string) $path);
+                $email->embedFromPath((string) $path, (string) $cid);
             }
         }
 
@@ -491,16 +692,20 @@ class EmailChannel implements RichNotificationChannel
             $email->text($data['text_content'] ?? '');
         }
 
-        // Add attachments if any
+        // Add attachments if any. Each path is confined to the allowed directories before it
+        // reaches Symfony -- a rejected path throws InvalidAttachmentException rather than being
+        // silently dropped, so an exfiltration attempt becomes a loud, non-retryable failure.
         if (!empty($data['attachments'])) {
             foreach ($data['attachments'] as $attachment) {
                 if (is_array($attachment) && isset($attachment['path'])) {
+                    $this->attachmentValidator()->validate((string) $attachment['path']);
                     $email->attachFromPath(
-                        $attachment['path'],
+                        (string) $attachment['path'],
                         $attachment['name'] ?? null,
                         $attachment['contentType'] ?? null
                     );
                 } elseif (is_string($attachment)) {
+                    $this->attachmentValidator()->validate($attachment);
                     $email->attachFromPath($attachment);
                 }
             }
@@ -529,36 +734,5 @@ class EmailChannel implements RichNotificationChannel
     public function getFormatter(): EmailFormatter
     {
         return $this->formatter;
-    }
-
-    /**
-     * Get the current size of the email queue
-     *
-     * Returns the number of emails currently pending in the framework's queue system.
-     * Uses the built-in QueueManager to get accurate queue statistics.
-     *
-     * @return int|null Number of emails in queue, or null if queue system not available
-     */
-    public function getQueueSize(): ?int
-    {
-        try {
-            // Check if queue feature is enabled in framework config
-            $queueConfig = config($this->context, 'queue');
-            if (empty($queueConfig) || !($queueConfig['enabled'] ?? true)) {
-                return 0;
-            }
-
-            // Use the framework's QueueManager to get queue size
-            $container = app($this->context);
-            if (!$container->has('Glueful\\Queue\\QueueManager')) {
-                return 0;
-            }
-
-            $queueManager = $container->get('Glueful\\Queue\\QueueManager');
-            return $queueManager->size('emails'); // Get size of emails queue
-        } catch (\Exception $e) {
-            $this->logger->error('Failed to get email queue size: ' . $e->getMessage());
-            return null;
-        }
     }
 }
