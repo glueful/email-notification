@@ -9,6 +9,7 @@ use Glueful\Database\Connection;
 use Glueful\Encryption\EncryptionService;
 use Glueful\Extensions\EmailNotification\Database\Migrations\CreateEmailSettingsTable;
 use Glueful\Extensions\EmailNotification\Database\Migrations\CreateEmailTemplatesTable;
+use Glueful\Extensions\EmailNotification\EmailChannel;
 use Glueful\Extensions\EmailNotification\Http\SettingsController;
 use Glueful\Extensions\EmailNotification\Http\TemplatesController;
 use Glueful\Extensions\EmailNotification\Settings\EmailSettings;
@@ -71,10 +72,22 @@ final class EmailAdminControllerTest extends TestCase
         $engine = new MustacheLiteEngine([__DIR__ . '/../src/Templates/html/partials']);
         $renderer = new TemplateRenderer($registry, $overrides, $engine);
         $settingsRepository = new SettingsRepository($connection, new EncryptionService($context));
+        // Null-transport channel: test-sends exercise the REAL send path
+        // (policy + transport) without touching a network.
+        $channel = new EmailChannel($context, [
+            'default' => 'null',
+            'mailers' => ['null' => ['transport' => 'null', 'dsn' => 'null://null']],
+            'from' => ['address' => 'noreply@app.test', 'name' => 'App'],
+        ]);
 
         return [
-            new TemplatesController($registry, $overrides, $engine, $renderer),
-            new SettingsController($context, $settingsRepository, new EmailSettings($context, $settingsRepository)),
+            new TemplatesController($registry, $overrides, $engine, $renderer, $channel),
+            new SettingsController(
+                $context,
+                $settingsRepository,
+                new EmailSettings($context, $settingsRepository),
+                $channel,
+            ),
             $settingsRepository,
         ];
     }
@@ -165,5 +178,41 @@ final class EmailAdminControllerTest extends TestCase
         self::assertArrayNotHasKey('key', $show['data']['settings']['mailers']['api']);
         self::assertArrayNotHasKey('dsn', $show['data']['settings']['mailers']['null']);
         self::assertNotSame('secret', $repository->get('password'));
+    }
+
+    public function test_template_test_send_actually_sends_and_validates_to(): void
+    {
+        [$templates] = $this->controllers();
+
+        // Missing/invalid address -> 422, nothing sent.
+        $bad = $templates->testSend($this->jsonRequest('POST', '/email/templates/verification/test', []), 'verification');
+        self::assertSame(422, $bad->getStatusCode());
+        $bad = $templates->testSend(
+            $this->jsonRequest('POST', '/email/templates/verification/test', ['to' => 'not-an-email']),
+            'verification'
+        );
+        self::assertSame(422, $bad->getStatusCode());
+
+        // A REAL send through the (null) transport: success + sent_to echoed.
+        $ok = $templates->testSend(
+            $this->jsonRequest('POST', '/email/templates/verification/test', ['to' => 'operator@app.test']),
+            'verification'
+        );
+        self::assertSame(200, $ok->getStatusCode());
+        $data = $this->json($ok)['data'];
+        self::assertSame('operator@app.test', $data['sent_to']);
+        self::assertNotSame('', (string) $data['subject']); // sample-rendered subject travels back
+    }
+
+    public function test_settings_test_send_actually_sends_and_validates_to(): void
+    {
+        [, $settings] = $this->controllers();
+
+        $bad = $settings->testSend($this->jsonRequest('POST', '/email/settings/test', []));
+        self::assertSame(422, $bad->getStatusCode());
+
+        $ok = $settings->testSend($this->jsonRequest('POST', '/email/settings/test', ['to' => 'operator@app.test']));
+        self::assertSame(200, $ok->getStatusCode());
+        self::assertSame('operator@app.test', $this->json($ok)['data']['sent_to']);
     }
 }

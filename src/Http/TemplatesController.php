@@ -6,6 +6,7 @@ namespace Glueful\Extensions\EmailNotification\Http;
 
 use Glueful\Extensions\Contracts\Email\EmailTemplateDefinition;
 use Glueful\Extensions\Contracts\Email\EmailTemplateRegistry;
+use Glueful\Extensions\EmailNotification\EmailChannel;
 use Glueful\Extensions\EmailNotification\Templates\OverrideRepository;
 use Glueful\Extensions\EmailNotification\Templates\TemplateEngine;
 use Glueful\Extensions\EmailNotification\Templates\TemplateRenderer;
@@ -19,7 +20,8 @@ final class TemplatesController
         private readonly EmailTemplateRegistry $registry,
         private readonly OverrideRepository $overrides,
         private readonly TemplateEngine $engine,
-        private readonly TemplateRenderer $renderer
+        private readonly TemplateRenderer $renderer,
+        private readonly EmailChannel $channel
     ) {
     }
 
@@ -86,6 +88,12 @@ final class TemplatesController
             return Response::notFound('Email template not found.');
         }
 
+        $body = (array) json_decode((string) $request->getContent(), true);
+        $to = is_string($body['to'] ?? null) ? trim($body['to']) : '';
+        if ($to === '' || filter_var($to, FILTER_VALIDATE_EMAIL) === false) {
+            return Response::error('A valid `to` email address is required.', 422);
+        }
+
         $samples = [];
         foreach ($definition->placeholders as $placeholder) {
             $samples[$placeholder->name] = $placeholder->sample;
@@ -93,7 +101,28 @@ final class TemplatesController
 
         $rendered = $this->renderer->render($key, $samples);
 
-        return Response::success($rendered, 'Email template rendered.');
+        // A REAL send — not a render preview: sample data through the live
+        // channel, with the domain policy and transport state applying exactly
+        // as they would for production mail.
+        $result = $this->channel->sendNotification(new TestRecipient($to), [
+            'subject' => $rendered['subject'],
+            'html_content' => $rendered['html'],
+            'text_content' => strip_tags($rendered['html']),
+            'type' => 'email_template_test',
+        ]);
+
+        if (!$result->success) {
+            $status = $result->errorCode === 'transport_misconfigured' ? 422 : 502;
+            return Response::error(
+                $result->errorMessage ?? 'Test send failed.',
+                $status,
+            );
+        }
+
+        return Response::success([
+            'sent_to' => $to,
+            'subject' => $rendered['subject'],
+        ], 'Test email sent.');
     }
 
     /**
