@@ -6,6 +6,7 @@ namespace Glueful\Extensions\EmailNotification;
 
 use Glueful\Bootstrap\ApplicationContext;
 use Glueful\Logging\LogManager;
+use Glueful\Extensions\EmailNotification\Settings\EmailSettings;
 use Glueful\Notifications\Contracts\Notifiable;
 use Glueful\Notifications\Contracts\RichNotificationChannel;
 use Glueful\Notifications\Results\NotificationResult;
@@ -44,6 +45,7 @@ class EmailChannel implements RichNotificationChannel
      */
     private LogManager $logger;
     private ApplicationContext $context;
+    private ?EmailSettings $settings;
 
     /**
      * @var AttachmentPathValidator|null Lazily-built attachment/embed path confinement validator.
@@ -56,9 +58,14 @@ class EmailChannel implements RichNotificationChannel
      * @param array<string, mixed> $config Email configuration
      * @param EmailFormatter|null $formatter Custom formatter (optional)
      */
-    public function __construct(ApplicationContext $context, array $config = [], ?EmailFormatter $formatter = null)
-    {
+    public function __construct(
+        ApplicationContext $context,
+        array $config = [],
+        ?EmailFormatter $formatter = null,
+        ?EmailSettings $settings = null
+    ) {
         $this->context = $context;
+        $this->settings = $settings;
         // Load config: merge core mail settings with extension-specific config
         if (empty($config)) {
             // Load core mail configuration from services.php
@@ -116,6 +123,8 @@ class EmailChannel implements RichNotificationChannel
      */
     public function sendNotification(Notifiable $notifiable, array $data): NotificationResult
     {
+        $this->refreshConfig();
+
         // Get the recipient email address
         $recipientEmail = $notifiable->routeNotificationFor('email');
 
@@ -394,6 +403,8 @@ class EmailChannel implements RichNotificationChannel
      */
     public function isAvailable(): bool
     {
+        $this->refreshConfig();
+
         // Check if required PHP extensions are loaded
         if (!extension_loaded('openssl')) {
             return false;
@@ -430,7 +441,7 @@ class EmailChannel implements RichNotificationChannel
      */
     public function getConfig(): array
     {
-        return $this->config;
+        return $this->currentConfig();
     }
 
     /**
@@ -442,7 +453,26 @@ class EmailChannel implements RichNotificationChannel
     public function setConfig(array $config): self
     {
         $this->config = array_merge($this->config, $config);
+        $this->attachmentValidator = null;
         return $this;
+    }
+
+    private function refreshConfig(): void
+    {
+        $this->config = $this->currentConfig();
+        $this->attachmentValidator = null;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function currentConfig(): array
+    {
+        if ($this->settings === null) {
+            return $this->config;
+        }
+
+        return array_replace_recursive($this->config, $this->settings->effectiveConfig());
     }
 
     /**

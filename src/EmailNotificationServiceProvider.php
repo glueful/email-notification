@@ -13,6 +13,8 @@ use Glueful\Extensions\EmailNotification\Templates\MustacheLiteEngine;
 use Glueful\Extensions\EmailNotification\Templates\OverrideRepository;
 use Glueful\Extensions\EmailNotification\Templates\TemplateEngine;
 use Glueful\Extensions\EmailNotification\Templates\TemplateRenderer;
+use Glueful\Extensions\EmailNotification\Settings\EmailSettings;
+use Glueful\Extensions\EmailNotification\Settings\SettingsRepository;
 
 /**
  * Email Notification Service Provider
@@ -93,6 +95,16 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
             ],
             TemplateRenderer::class => [
                 'class' => TemplateRenderer::class,
+                'shared' => true,
+                'autowire' => true,
+            ],
+            SettingsRepository::class => [
+                'class' => SettingsRepository::class,
+                'shared' => true,
+                'autowire' => true,
+            ],
+            EmailSettings::class => [
+                'class' => EmailSettings::class,
                 'shared' => true,
                 'autowire' => true,
             ],
