@@ -13,7 +13,7 @@ use Glueful\Bootstrap\ApplicationContext;
  * input. Passing them straight to Symfony's attachFromPath()/embedFromPath() (with at most a
  * file_exists() check) lets a caller attach arbitrary host files (/etc/passwd, .env, private keys)
  * and exfiltrate them to a recipient of their choosing. This validator is the single chokepoint
- * that both {@see EmailChannel} and {@see EnhancedEmailFormatter} route every path through.
+ * that {@see EmailChannel} routes every path through.
  *
  * A path is accepted only when realpath() resolves it AND the resolved path sits inside one of the
  * allowed base directories. Allowed bases come from config key `security.attachment_allowed_paths`

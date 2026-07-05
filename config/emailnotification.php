@@ -11,16 +11,9 @@ declare(strict_types=1);
  */
 
 return [
-    // Templates configuration (extension-specific)
+    // Template variables merged into every render. Template definitions are registered through
+    // EmailTemplateRegistry; DB overrides live in email_templates.
     'templates' => [
-        'extension_path' => __DIR__ . '/../src/Templates/html',
-        'extension_mappings' => [
-            'verification' => 'verification',
-            'password-reset' => 'password-reset',
-            'welcome' => 'welcome',
-            'alert' => 'alert',
-            'default' => 'default',
-        ],
         'extension_variables' => [
             'extension_version' => 'dev', // Overridden at runtime from composer.json
             'powered_by' => 'Glueful EmailNotification Extension',
@@ -63,7 +56,7 @@ return [
     // allowlist stays strict.
     // Each accepts a comma-separated string (env) or an array.
     //
-    // Attachment path confinement, enforced by EmailChannel/EnhancedEmailFormatter. Attachment
+    // Attachment path confinement, enforced by EmailChannel. Attachment
     // and embedded-image paths come from notification data (potentially user-influenced); they are
     // accepted only when realpath() resolves them INSIDE one of these base directories, so a caller
     // cannot attach arbitrary host files (e.g. /etc/passwd, .env, private keys) and exfiltrate them.

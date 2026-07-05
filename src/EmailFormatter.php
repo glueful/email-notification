@@ -5,8 +5,12 @@ declare(strict_types=1);
 namespace Glueful\Extensions\EmailNotification;
 
 use Glueful\Bootstrap\ApplicationContext;
+use Glueful\Extensions\EmailNotification\Templates\BuiltInDefinitions;
+use Glueful\Extensions\EmailNotification\Templates\DefinitionRegistry;
+use Glueful\Extensions\EmailNotification\Templates\MustacheLiteEngine;
+use Glueful\Extensions\EmailNotification\Templates\OverrideRepository;
+use Glueful\Extensions\EmailNotification\Templates\TemplateRenderer;
 use Glueful\Notifications\Contracts\Notifiable;
-use Glueful\Http\Exceptions\Domain\BusinessLogicException;
 
 /**
  * Email Formatter
@@ -24,6 +28,7 @@ class EmailFormatter
     private array $templates = [];
 
     private ApplicationContext $context;
+    private TemplateRenderer $renderer;
 
     /**
      * @var array<string, mixed> Default formatting options
@@ -32,7 +37,7 @@ class EmailFormatter
         'include_footer' => true,
         'include_header' => true,
         'default_template' => 'default',
-        'templates_path' => null,
+        'built_in_template_root' => __DIR__ . '/Templates/html',
     ];
 
     /**
@@ -41,8 +46,12 @@ class EmailFormatter
      * @param array<string, array<string, mixed>|string> $templates Custom templates
      * @param array<string, mixed> $options Formatting options
      */
-    public function __construct(ApplicationContext $context, array $templates = [], array $options = [])
-    {
+    public function __construct(
+        ApplicationContext $context,
+        array $templates = [],
+        array $options = [],
+        ?TemplateRenderer $renderer = null
+    ) {
         $this->context = $context;
         // Load template configuration from services
         $this->loadTemplateConfiguration();
@@ -50,8 +59,7 @@ class EmailFormatter
         // Merge provided options with loaded config
         $this->defaultOptions = array_merge($this->defaultOptions, $options);
 
-        // Register default templates
-        $this->registerDefaultTemplates();
+        $this->renderer = $renderer ?? $this->defaultRenderer();
 
         // Register any provided custom templates
         foreach ($templates as $name => $template) {
@@ -64,44 +72,38 @@ class EmailFormatter
      */
     protected function loadTemplateConfiguration(): void
     {
-        // Get mail configuration
-        $mailConfig = config($this->context, 'services.mail', []);
-        $templateConfig = $mailConfig['templates'] ?? [];
-
         // Get extension configuration
         $extensionConfig = config($this->context, 'emailnotification', []);
         $extensionTemplates = $extensionConfig['templates'] ?? [];
 
-        // Set primary template path
-        if (!empty($templateConfig['path'])) {
-            $this->defaultOptions['templates_path'] = $templateConfig['path'];
-        } elseif (!empty($extensionTemplates['extension_path'])) {
-            $this->defaultOptions['templates_path'] = $extensionTemplates['extension_path'];
-        } else {
-            $this->defaultOptions['templates_path'] = __DIR__ . '/Templates/html';
-        }
-
-        // Store additional paths for fallback
-        $this->defaultOptions['custom_paths'] = $templateConfig['custom_paths'] ?? [];
-
-        // Store template mappings (merge framework and extension mappings)
-        $this->defaultOptions['template_mappings'] = array_merge(
-            $extensionTemplates['extension_mappings'] ?? [],
-            $templateConfig['mappings'] ?? []
-        );
-
         // Store global variables (merge framework and extension variables)
+        $mailConfig = config($this->context, 'services.mail', []);
+        $templateConfig = $mailConfig['templates'] ?? [];
         $this->defaultOptions['global_variables'] = array_merge(
             $extensionTemplates['extension_variables'] ?? [],
             $templateConfig['global_variables'] ?? []
         );
 
-        // Store other config options
-        $this->defaultOptions['default_layout'] = $templateConfig['default_layout'] ?? 'layout';
-        $this->defaultOptions['partials_directory'] = $templateConfig['partials_directory'] ?? 'partials';
-        $this->defaultOptions['extension'] = $templateConfig['extension'] ?? '.html';
-        $this->defaultOptions['cache_enabled'] = $templateConfig['cache_enabled'] ?? true;
-        $this->defaultOptions['cache_path'] = $templateConfig['cache_path'] ?? null;
+        $this->defaultOptions['partials_directory'] = 'partials';
+        $this->defaultOptions['extension'] = '.html';
+    }
+
+    private function defaultRenderer(): TemplateRenderer
+    {
+        $registry = new DefinitionRegistry();
+        $registry->register(...BuiltInDefinitions::all());
+
+        $partialsDir = $this->defaultOptions['partials_directory'] ?? 'partials';
+        $extension = $this->defaultOptions['extension'] ?? '.html';
+        $templateRoot = rtrim((string) $this->defaultOptions['built_in_template_root'], '/');
+        $partialPaths = [$templateRoot . '/' . $partialsDir];
+
+        return new TemplateRenderer(
+            $registry,
+            new OverrideRepository(),
+            new MustacheLiteEngine($partialPaths, (string) $extension),
+            $templateRoot . '/' . $partialsDir . '/layout' . $extension
+        );
     }
 
     /**
@@ -114,13 +116,11 @@ class EmailFormatter
     public function format(array $data, Notifiable $notifiable): array
     {
 
-        // Determine the notification type and corresponding template
-        $type = $data['type'] ?? 'default';
         $templateName = $data['template_name'] ?? $this->defaultOptions['default_template'];
 
         // Start with basic email structure
         $result = [
-            'subject' => $data['subject'] ?? 'Notification',
+            'subject' => '',
             'text_content' => '',
             'html_content' => '',
             'attachments' => $data['attachments'] ?? []
@@ -135,15 +135,8 @@ class EmailFormatter
             $result['bcc'] = $data['bcc'];
         }
 
-        // Get the template content
-        $template = $this->getTemplate($type, $templateName);
-
         // Set notification data for template rendering
         $templateData = $data['template_data'] ?? $data;
-
-        // Always include subject and title in template data
-        $templateData['subject'] = $result['subject'];
-        $templateData['title'] = $result['subject']; // Add title as an alias to subject
 
         // Neutralise URLs whose scheme isn't http(s) before they reach href slots
         // (e.g. javascript:/data: payloads in action_url / reset_url).
@@ -166,8 +159,9 @@ class EmailFormatter
         $templateData['notifiable_id'] = $notifiable->getNotifiableId();
         $templateData['notifiable_type'] = $notifiable->getNotifiableType();
 
-        // Apply the template to get HTML content
-        $result['html_content'] = $this->renderTemplate($template, $templateData);
+        $rendered = $this->renderer->render((string) $templateName, $templateData);
+        $result['subject'] = $rendered['subject'];
+        $result['html_content'] = $rendered['html'];
 
         // Generate plain text version
         $result['text_content'] = $this->htmlToText($result['html_content']);
@@ -197,12 +191,6 @@ class EmailFormatter
      */
     public function getTemplate(string $type, string $name = 'default')
     {
-        // Check template mappings first
-        $mappings = $this->defaultOptions['template_mappings'] ?? [];
-        if (isset($mappings[$name])) {
-            $name = $mappings[$name];
-        }
-
         // First try to find a template specific to this notification type
         $typedTemplateName = $type . '.' . $name;
 
@@ -302,11 +290,7 @@ class EmailFormatter
         $partialsDir = $this->defaultOptions['partials_directory'] ?? 'partials';
         $extension = $this->defaultOptions['extension'] ?? '.html';
 
-        $searchPaths = [];
-        if (!empty($this->defaultOptions['custom_paths'])) {
-            $searchPaths = array_merge($searchPaths, $this->defaultOptions['custom_paths']);
-        }
-        $searchPaths[] = $this->defaultOptions['templates_path'] . '/' . $partialsDir;
+        $searchPaths = [$this->defaultOptions['built_in_template_root'] . '/' . $partialsDir];
 
         foreach ($searchPaths as $basePath) {
             $layoutPath = rtrim($basePath, '/') . '/layout' . $extension;
@@ -464,11 +448,7 @@ class EmailFormatter
         $partialsDir = $this->defaultOptions['partials_directory'] ?? 'partials';
         $extension = $this->defaultOptions['extension'] ?? '.html';
 
-        $searchPaths = [];
-        if (!empty($this->defaultOptions['custom_paths'])) {
-            $searchPaths = array_merge($searchPaths, $this->defaultOptions['custom_paths']);
-        }
-        $searchPaths[] = $this->defaultOptions['templates_path'] . '/' . $partialsDir;
+        $searchPaths = [$this->defaultOptions['built_in_template_root'] . '/' . $partialsDir];
 
         foreach ($searchPaths as $basePath) {
             $partialFile = rtrim($basePath, '/') . '/' . $partialName . $extension;
@@ -507,61 +487,6 @@ class EmailFormatter
         $text = preg_replace('/\n\s*\n/', "\n\n", $text) ?? $text;
 
         return trim($text);
-    }
-
-    /**
-     * Register default email templates
-     */
-    private function registerDefaultTemplates(): void
-    {
-        $templatesPath = $this->defaultOptions['templates_path'];
-        $customPaths = $this->defaultOptions['custom_paths'] ?? [];
-
-        // Make sure templates directory exists
-        if (!file_exists($templatesPath)) {
-            throw BusinessLogicException::operationNotAllowed(
-                'email_template_loading',
-                "Email templates directory not found: {$templatesPath}"
-            );
-        }
-
-        // First register the default template (required)
-        $defaultTemplatePath = $templatesPath . '/default.html';
-        if (!file_exists($defaultTemplatePath)) {
-            throw BusinessLogicException::operationNotAllowed(
-                'email_template_loading',
-                "Default email template not found: {$defaultTemplatePath}"
-            );
-        }
-
-        $this->templates['default'] = $defaultTemplatePath;
-
-        // Scan for all HTML templates in the directory
-        $files = glob($templatesPath . '/*.html') ?: [];
-        foreach ($files as $file) {
-            $templateName = pathinfo($file, PATHINFO_FILENAME);
-
-            // Skip default as we already registered it
-            if ($templateName === 'default') {
-                continue;
-            }
-
-            $this->templates[$templateName] = $file;
-        }
-
-        // Allow custom_paths to override or add templates
-        foreach ($customPaths as $customPath) {
-            $customPath = rtrim($customPath, '/');
-            if (!is_dir($customPath)) {
-                continue;
-            }
-
-            $customFiles = glob($customPath . '/*.html') ?: [];
-            foreach ($customFiles as $file) {
-                $templateName = pathinfo($file, PATHINFO_FILENAME);
-                $this->templates[$templateName] = $file;
-            }
-        }
     }
 
     /**

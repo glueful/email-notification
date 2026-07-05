@@ -5,6 +5,20 @@ declare(strict_types=1);
 namespace Glueful\Extensions\EmailNotification;
 
 use Glueful\Bootstrap\ApplicationContext;
+use Glueful\Database\Migrations\MigrationPriority;
+use Glueful\Extensions\Contracts\Email\EmailTemplateRegistry;
+use Glueful\Extensions\EmailNotification\Http\RequireEmailPermission;
+use Glueful\Extensions\EmailNotification\Http\SettingsController;
+use Glueful\Extensions\EmailNotification\Http\TemplatesController;
+use Glueful\Extensions\EmailNotification\Templates\BuiltInDefinitions;
+use Glueful\Extensions\EmailNotification\Templates\DefinitionRegistry;
+use Glueful\Extensions\EmailNotification\Templates\MustacheLiteEngine;
+use Glueful\Extensions\EmailNotification\Templates\OverrideRepository;
+use Glueful\Extensions\EmailNotification\Templates\TemplateEngine;
+use Glueful\Extensions\EmailNotification\Templates\TemplateRenderer;
+use Glueful\Extensions\EmailNotification\Settings\EmailSettings;
+use Glueful\Extensions\EmailNotification\Settings\SettingsRepository;
+use Glueful\Permissions\Catalog\Permission;
 
 /**
  * Email Notification Service Provider
@@ -66,13 +80,56 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
     public static function services(): array
     {
         return [
-            EmailFormatter::class => [
-                'class' => EmailFormatter::class,
+            DefinitionRegistry::class => [
+                'class' => DefinitionRegistry::class,
+                'shared' => true,
+                'autowire' => true,
+                'alias' => [EmailTemplateRegistry::class],
+            ],
+            MustacheLiteEngine::class => [
+                'class' => MustacheLiteEngine::class,
+                'shared' => true,
+                'autowire' => true,
+                'alias' => [TemplateEngine::class],
+            ],
+            OverrideRepository::class => [
+                'class' => OverrideRepository::class,
                 'shared' => true,
                 'autowire' => true,
             ],
-            EnhancedEmailFormatter::class => [
-                'class' => EnhancedEmailFormatter::class,
+            TemplateRenderer::class => [
+                'class' => TemplateRenderer::class,
+                'shared' => true,
+                'autowire' => true,
+            ],
+            SettingsRepository::class => [
+                'class' => SettingsRepository::class,
+                'shared' => true,
+                'autowire' => true,
+            ],
+            EmailSettings::class => [
+                'class' => EmailSettings::class,
+                'shared' => true,
+                'autowire' => true,
+            ],
+            TemplatesController::class => [
+                'class' => TemplatesController::class,
+                'shared' => true,
+                'autowire' => true,
+            ],
+            SettingsController::class => [
+                'class' => SettingsController::class,
+                'shared' => true,
+                'autowire' => true,
+            ],
+            RequireEmailPermission::class => [
+                'class' => RequireEmailPermission::class,
+                'shared' => true,
+                'autowire' => true,
+                'alias' => ['email_permission'],
+            ],
+            EmailFormatter::class => [
+                'class' => EmailFormatter::class,
                 'shared' => true,
                 'autowire' => true,
             ],
@@ -115,6 +172,16 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
      */
     public function boot(ApplicationContext $context): void
     {
+        $this->loadMigrationsFrom(__DIR__ . '/../migrations', MigrationPriority::DEFAULT, 'glueful/email-notification');
+        $this->loadRoutesFrom(__DIR__ . '/../routes.php');
+
+        if ($this->app->has(EmailTemplateRegistry::class)) {
+            $registry = $this->app->get(EmailTemplateRegistry::class);
+            if ($registry instanceof EmailTemplateRegistry) {
+                $registry->register(...BuiltInDefinitions::all());
+            }
+        }
+
         // Register the email channel and its before/after-send hooks through the framework's
         // extension helpers (1.51.0+). These resolve the shared container ChannelManager /
         // NotificationDispatcher and no-op if the notification subsystem isn't present — this is
@@ -141,7 +208,22 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
      */
     public function routes(): void
     {
-        // Email notification extension doesn't have routes
+        // Routes are loaded from boot() so the route manifest sees the same provider lifecycle
+        // as migrations and command discovery.
+    }
+
+    /**
+     * @return list<Permission>
+     */
+    public function permissions(): array
+    {
+        return [
+            Permission::define('email.templates.manage')
+                ->label('Manage email templates & settings')
+                ->category('Email')
+                ->resource('email')
+                ->managedBy('glueful/email-notification'),
+        ];
     }
 
     /**
