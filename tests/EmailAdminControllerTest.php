@@ -72,7 +72,8 @@ final class EmailAdminControllerTest extends TestCase
         $registry = new DefinitionRegistry();
         $registry->register(...BuiltInDefinitions::all());
         $overrides = new OverrideRepository($connection);
-        $engine = new MustacheLiteEngine([__DIR__ . '/../src/Templates/html/partials']);
+        // Overrides shared with the engine so partial.{name} rows apply (prod wiring).
+        $engine = new MustacheLiteEngine([__DIR__ . '/../src/Templates/html/partials'], '.html', $overrides);
         $renderer = new TemplateRenderer($registry, $overrides, $engine);
         $settingsRepository = new SettingsRepository($connection, new EncryptionService($context));
         // Capturing channel WITH the harness renderer: test-sends exercise the
@@ -242,11 +243,69 @@ final class EmailAdminControllerTest extends TestCase
         self::assertSame(200, $ok->getStatusCode());
         self::assertSame('operator@app.test', $this->json($ok)['data']['sent_to']);
 
-        // The transport receives the actual plain test message.
+        // The transport receives the actual plain test message — via the
+        // 'default' template, which now rides the LAYOUT + shared styles
+        // partial (it no longer carries its own duplicated document/CSS).
         self::assertCount(1, $this->channel->sent);
+        $html = (string) $this->channel->sent[0]->getHtmlBody();
+        self::assertStringContainsString('confirming your email settings work', $html);
+        self::assertStringContainsString('<!DOCTYPE html>', $html);   // layout-wrapped
+        self::assertStringContainsString('.otp-code', $html);         // shared styles partial
+    }
+
+    public function test_partials_list_save_reset_and_render_through_overrides(): void
+    {
+        [$templates] = $this->controllers();
+
+        // Listed alongside templates with effective bodies + language metadata.
+        $data = $this->json($templates->index($this->jsonRequest('GET', '/email/templates', [])))['data'];
+        $partials = array_column($data['partials'], null, 'key');
+        self::assertArrayHasKey('partial.layout', $partials);
+        self::assertArrayHasKey('partial.styles', $partials);
+        self::assertSame('css', $partials['partial.styles']['language']);
+        self::assertFalse($partials['partial.styles']['overridden']);
+        self::assertStringContainsString('.otp-code', $partials['partial.styles']['body']); // shipped CSS
+
+        // Override the styles partial (the CSS-injection point) and send: the
+        // transport-received HTML carries the custom CSS.
+        $save = $templates->save(
+            $this->jsonRequest('PUT', '/email/templates/partial.styles', [
+                'body' => "<style>.brand { color: teal; }</style>",
+            ]),
+            'partial.styles'
+        );
+        self::assertSame(200, $save->getStatusCode());
+        $templates->testSend(
+            $this->jsonRequest('POST', '/email/templates/verification/test', ['to' => 'operator@app.test']),
+            'verification'
+        );
         self::assertStringContainsString(
-            'confirming your email settings work',
+            '<style>.brand { color: teal; }</style>',
             (string) $this->channel->sent[0]->getHtmlBody(),
         );
+
+        // Layout override wraps the send too.
+        $templates->save(
+            $this->jsonRequest('PUT', '/email/templates/partial.layout', [
+                'body' => '<!DOCTYPE html><html><body id="custom-layout">{{{content}}}</body></html>',
+            ]),
+            'partial.layout'
+        );
+        $templates->testSend(
+            $this->jsonRequest('POST', '/email/templates/verification/test', ['to' => 'operator@app.test']),
+            'verification'
+        );
+        self::assertStringContainsString('id="custom-layout"', (string) $this->channel->sent[1]->getHtmlBody());
+
+        // Reset restores the shipped file.
+        self::assertSame(200, $templates->reset($this->jsonRequest('DELETE', '/email/templates/partial.styles', []), 'partial.styles')->getStatusCode());
+        $data = $this->json($templates->index($this->jsonRequest('GET', '/email/templates', [])))['data'];
+        $styles = array_column($data['partials'], null, 'key')['partial.styles'];
+        self::assertFalse($styles['overridden']);
+        self::assertStringContainsString('.otp-code', $styles['body']);
+
+        // Unknown partial keys stay 404; empty body 422s.
+        self::assertSame(404, $templates->save($this->jsonRequest('PUT', '/x', ['body' => 'x']), 'partial.nope')->getStatusCode());
+        self::assertSame(422, $templates->save($this->jsonRequest('PUT', '/x', ['body' => '  ']), 'partial.header')->getStatusCode());
     }
 }
