@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [Unreleased]
+
+### Added
+- Editable layout partials: `layout`, `header`, `footer`, and a new `styles`
+  partial join the templates admin API (`partial.{name}` keys in the same
+  override store — body-only, engine-linted, reset-to-default). The layout's
+  embedded CSS moved into the `styles` partial (`{{> styles}}` inside the
+  layout's `<style>` block), making a styles override the clean way to
+  restyle every email without touching layout structure. Partial resolution
+  is DB-first everywhere: the engine and the layout wrapper consult the
+  override store before shipped files.
+
 ## [1.11.0] - 2026-07-05
 
 ### Added

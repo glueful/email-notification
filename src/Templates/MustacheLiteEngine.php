@@ -6,12 +6,17 @@ namespace Glueful\Extensions\EmailNotification\Templates;
 
 final class MustacheLiteEngine implements TemplateEngine
 {
+    /** Override-store key prefix for partials (partial.header, partial.styles, …). */
+    public const PARTIAL_KEY_PREFIX = 'partial.';
+
     /**
      * @param list<string> $partialPaths
      */
     public function __construct(
         private readonly array $partialPaths = [__DIR__ . '/html/partials'],
-        private readonly string $extension = '.html'
+        private readonly string $extension = '.html',
+        /** DB-first partial resolution: an override row beats the shipped file. */
+        private readonly ?OverrideRepository $overrides = null
     ) {
     }
 
@@ -114,6 +119,13 @@ final class MustacheLiteEngine implements TemplateEngine
      */
     private function includePartial(string $partialName, array $data): string
     {
+        // Admin-overridden partial (partial.{name} in the template store) wins
+        // over the shipped file — same precedence as templates themselves.
+        $override = $this->overrides?->find(self::PARTIAL_KEY_PREFIX . $partialName);
+        if ($override !== null) {
+            return $this->render($override['body'], $data);
+        }
+
         foreach ($this->partialPaths as $basePath) {
             $partialFile = rtrim($basePath, '/') . '/' . $partialName . $this->extension;
             if (!is_file($partialFile)) {

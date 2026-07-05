@@ -98,10 +98,14 @@ class EmailFormatter
         $templateRoot = rtrim((string) $this->defaultOptions['built_in_template_root'], '/');
         $partialPaths = [$templateRoot . '/' . $partialsDir];
 
+        // One override store shared by renderer AND engine, so admin-edited
+        // partials (partial.header/styles/…) apply on this fallback path too.
+        $overrides = new OverrideRepository();
+
         return new TemplateRenderer(
             $registry,
-            new OverrideRepository(),
-            new MustacheLiteEngine($partialPaths, (string) $extension),
+            $overrides,
+            new MustacheLiteEngine($partialPaths, (string) $extension, $overrides),
             $templateRoot . '/' . $partialsDir . '/layout' . $extension
         );
     }

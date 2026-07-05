@@ -7,6 +7,7 @@ namespace Glueful\Extensions\EmailNotification\Http;
 use Glueful\Extensions\Contracts\Email\EmailTemplateDefinition;
 use Glueful\Extensions\Contracts\Email\EmailTemplateRegistry;
 use Glueful\Extensions\EmailNotification\EmailChannel;
+use Glueful\Extensions\EmailNotification\Templates\MustacheLiteEngine;
 use Glueful\Extensions\EmailNotification\Templates\OverrideRepository;
 use Glueful\Extensions\EmailNotification\Templates\TemplateEngine;
 use Glueful\Extensions\EmailNotification\Templates\TemplateRenderer;
@@ -25,6 +26,39 @@ final class TemplatesController
     ) {
     }
 
+    /**
+     * Editable layout furniture (NOT registry templates): shipped files under
+     * Templates/html/partials, overridable via partial.{name} rows in the same
+     * store. `styles` is the clean CSS-injection point — the layout includes it
+     * inside its <style> block, so overriding it restyles every email without
+     * touching the layout's structure.
+     *
+     * @var array<string, array{label:string, description:string, language:string}>
+     */
+    private const PARTIALS = [
+        'partial.layout' => [
+            'label' => 'Layout',
+            'description' => 'The outer HTML document every email is wrapped in.'
+                . ' Variables: {{subject}}, {{{content}}}, {{logo_url}}, {{> styles}}, {{> header}}, {{> footer}}.',
+            'language' => 'html',
+        ],
+        'partial.header' => [
+            'label' => 'Header',
+            'description' => 'Rendered above the message content ({{> header}}).',
+            'language' => 'html',
+        ],
+        'partial.footer' => [
+            'label' => 'Footer',
+            'description' => 'Rendered below the message content ({{> footer}}).',
+            'language' => 'html',
+        ],
+        'partial.styles' => [
+            'label' => 'Styles (CSS)',
+            'description' => 'Stylesheet injected into the layout\'s <style> block — override to restyle every email.',
+            'language' => 'css',
+        ],
+    ];
+
     public function index(Request $request): Response
     {
         $templates = array_map(
@@ -32,11 +66,64 @@ final class TemplatesController
             $this->registry->all()
         );
 
-        return Response::success(['templates' => $templates], 'Email templates retrieved.');
+        $partials = [];
+        foreach (self::PARTIALS as $key => $meta) {
+            $partials[] = $this->partialPayload($key, $meta);
+        }
+
+        return Response::success([
+            'templates' => $templates,
+            'partials' => $partials,
+        ], 'Email templates retrieved.');
+    }
+
+    /**
+     * @param array{label:string, description:string, language:string} $meta
+     * @return array<string, mixed>
+     */
+    private function partialPayload(string $key, array $meta): array
+    {
+        $override = $this->overrides->find($key);
+        return [
+            'key' => $key,
+            'label' => $meta['label'],
+            'description' => $meta['description'],
+            'language' => $meta['language'],
+            'body' => $override['body'] ?? $this->partialDefault($key),
+            'overridden' => $override !== null,
+        ];
+    }
+
+    private function partialDefault(string $key): string
+    {
+        $name = substr($key, strlen(MustacheLiteEngine::PARTIAL_KEY_PREFIX));
+        $file = dirname(__DIR__) . '/Templates/html/partials/' . $name . '.html';
+        return is_file($file) ? (string) file_get_contents($file) : '';
     }
 
     public function save(Request $request, string $key): Response
     {
+        // Partials: body-only overrides (no subject, no registry definition).
+        if (isset(self::PARTIALS[$key])) {
+            $data = RequestHelper::getRequestData($request);
+            $body = isset($data['body']) ? (string) $data['body'] : '';
+            $errors = [];
+            if (trim($body) === '') {
+                $errors['body'] = 'Body is required.';
+            }
+            foreach ($this->engine->violations($body) as $violation) {
+                $errors['body'][] = $violation;
+            }
+            if ($errors !== []) {
+                return Response::validation($errors);
+            }
+            $this->overrides->save($key, '', $body, null);
+            return Response::success(
+                $this->partialPayload($key, self::PARTIALS[$key]),
+                'Partial saved.'
+            );
+        }
+
         $definition = $this->registry->find($key);
         if ($definition === null) {
             return Response::notFound('Email template not found.');
@@ -70,7 +157,7 @@ final class TemplatesController
 
     public function reset(Request $request, string $key): Response
     {
-        if ($this->registry->find($key) === null) {
+        if (!isset(self::PARTIALS[$key]) && $this->registry->find($key) === null) {
             return Response::notFound('Email template not found.');
         }
 

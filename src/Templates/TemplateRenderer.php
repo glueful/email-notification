@@ -48,13 +48,19 @@ final class TemplateRenderer
             return $body;
         }
 
-        if (!is_file($this->layoutPath)) {
-            return $body;
-        }
+        // An admin-overridden layout (partial.layout) beats the shipped file.
+        $override = $this->overrides->find(MustacheLiteEngine::PARTIAL_KEY_PREFIX . 'layout');
+        $layout = $override['body'] ?? null;
 
-        $layout = file_get_contents($this->layoutPath);
-        if (!is_string($layout)) {
-            return $body;
+        if ($layout === null) {
+            if (!is_file($this->layoutPath)) {
+                return $body;
+            }
+            $fileLayout = file_get_contents($this->layoutPath);
+            if (!is_string($fileLayout)) {
+                return $body;
+            }
+            $layout = $fileLayout;
         }
 
         return $this->engine->render($layout, $data + ['content' => $body]);
