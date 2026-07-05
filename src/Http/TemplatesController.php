@@ -30,7 +30,8 @@ final class TemplatesController
      * Editable layout furniture (NOT registry templates): shipped files under
      * Templates/html/partials, overridable via partial.{name} rows in the same
      * store. `styles` is the clean CSS-injection point — the layout includes it
-     * inside its <style> block, so overriding it restyles every email without
+     * in <head> (the partial carries its own <style> wrapper, keeping both
+     * files IDE-parseable), so overriding it restyles every email without
      * touching the layout's structure.
      *
      * @var array<string, array{label:string, description:string, language:string}>
@@ -54,7 +55,8 @@ final class TemplatesController
         ],
         'partial.styles' => [
             'label' => 'Styles (CSS)',
-            'description' => 'Stylesheet injected into the layout\'s <style> block — override to restyle every email.',
+            'description' => 'The stylesheet included in the layout <head> — override to restyle'
+                . ' every email. Keep the surrounding <style> tags.',
             'language' => 'css',
         ],
     ];

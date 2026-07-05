@@ -10,9 +10,13 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Editable layout partials: `layout`, `header`, `footer`, and a new `styles`
   partial join the templates admin API (`partial.{name}` keys in the same
   override store — body-only, engine-linted, reset-to-default). The layout's
-  embedded CSS moved into the `styles` partial (`{{> styles}}` inside the
-  layout's `<style>` block), making a styles override the clean way to
-  restyle every email without touching layout structure. Partial resolution
+  embedded CSS moved into the `styles` partial (included bare in the layout
+  `<head>`; the partial carries its own `<style>` wrapper so the templates
+  stay IDE-parseable), making a styles override the clean way to restyle
+  every email without touching layout structure. The `default` template
+  became body-only like the other four — it previously shipped as a full
+  document with a duplicated, drifting copy of the CSS that bypassed the
+  layout entirely; it now renders through the layout + shared styles. Partial resolution
   is DB-first everywhere: the engine and the layout wrapper consult the
   override store before shipped files.
 

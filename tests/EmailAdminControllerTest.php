@@ -243,12 +243,14 @@ final class EmailAdminControllerTest extends TestCase
         self::assertSame(200, $ok->getStatusCode());
         self::assertSame('operator@app.test', $this->json($ok)['data']['sent_to']);
 
-        // The transport receives the actual plain test message.
+        // The transport receives the actual plain test message — via the
+        // 'default' template, which now rides the LAYOUT + shared styles
+        // partial (it no longer carries its own duplicated document/CSS).
         self::assertCount(1, $this->channel->sent);
-        self::assertStringContainsString(
-            'confirming your email settings work',
-            (string) $this->channel->sent[0]->getHtmlBody(),
-        );
+        $html = (string) $this->channel->sent[0]->getHtmlBody();
+        self::assertStringContainsString('confirming your email settings work', $html);
+        self::assertStringContainsString('<!DOCTYPE html>', $html);   // layout-wrapped
+        self::assertStringContainsString('.otp-code', $html);         // shared styles partial
     }
 
     public function test_partials_list_save_reset_and_render_through_overrides(): void
@@ -267,7 +269,9 @@ final class EmailAdminControllerTest extends TestCase
         // Override the styles partial (the CSS-injection point) and send: the
         // transport-received HTML carries the custom CSS.
         $save = $templates->save(
-            $this->jsonRequest('PUT', '/email/templates/partial.styles', ['body' => '.brand { color: teal; }']),
+            $this->jsonRequest('PUT', '/email/templates/partial.styles', [
+                'body' => "<style>.brand { color: teal; }</style>",
+            ]),
             'partial.styles'
         );
         self::assertSame(200, $save->getStatusCode());
@@ -275,7 +279,10 @@ final class EmailAdminControllerTest extends TestCase
             $this->jsonRequest('POST', '/email/templates/verification/test', ['to' => 'operator@app.test']),
             'verification'
         );
-        self::assertStringContainsString('.brand { color: teal; }', (string) $this->channel->sent[0]->getHtmlBody());
+        self::assertStringContainsString(
+            '<style>.brand { color: teal; }</style>',
+            (string) $this->channel->sent[0]->getHtmlBody(),
+        );
 
         // Layout override wraps the send too.
         $templates->save(
