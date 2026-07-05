@@ -5,8 +5,12 @@ declare(strict_types=1);
 namespace Glueful\Extensions\EmailNotification;
 
 use Glueful\Bootstrap\ApplicationContext;
+use Glueful\Extensions\EmailNotification\Templates\BuiltInDefinitions;
+use Glueful\Extensions\EmailNotification\Templates\DefinitionRegistry;
+use Glueful\Extensions\EmailNotification\Templates\MustacheLiteEngine;
+use Glueful\Extensions\EmailNotification\Templates\OverrideRepository;
+use Glueful\Extensions\EmailNotification\Templates\TemplateRenderer;
 use Glueful\Notifications\Contracts\Notifiable;
-use Glueful\Http\Exceptions\Domain\BusinessLogicException;
 
 /**
  * Email Formatter
@@ -24,6 +28,7 @@ class EmailFormatter
     private array $templates = [];
 
     private ApplicationContext $context;
+    private TemplateRenderer $renderer;
 
     /**
      * @var array<string, mixed> Default formatting options
@@ -41,8 +46,12 @@ class EmailFormatter
      * @param array<string, array<string, mixed>|string> $templates Custom templates
      * @param array<string, mixed> $options Formatting options
      */
-    public function __construct(ApplicationContext $context, array $templates = [], array $options = [])
-    {
+    public function __construct(
+        ApplicationContext $context,
+        array $templates = [],
+        array $options = [],
+        ?TemplateRenderer $renderer = null
+    ) {
         $this->context = $context;
         // Load template configuration from services
         $this->loadTemplateConfiguration();
@@ -50,8 +59,7 @@ class EmailFormatter
         // Merge provided options with loaded config
         $this->defaultOptions = array_merge($this->defaultOptions, $options);
 
-        // Register default templates
-        $this->registerDefaultTemplates();
+        $this->renderer = $renderer ?? $this->defaultRenderer();
 
         // Register any provided custom templates
         foreach ($templates as $name => $template) {
@@ -104,6 +112,29 @@ class EmailFormatter
         $this->defaultOptions['cache_path'] = $templateConfig['cache_path'] ?? null;
     }
 
+    private function defaultRenderer(): TemplateRenderer
+    {
+        $registry = new DefinitionRegistry();
+        $registry->register(...BuiltInDefinitions::all());
+
+        $partialsDir = $this->defaultOptions['partials_directory'] ?? 'partials';
+        $extension = $this->defaultOptions['extension'] ?? '.html';
+        $partialPaths = [];
+        if (!empty($this->defaultOptions['custom_paths']) && is_array($this->defaultOptions['custom_paths'])) {
+            foreach ($this->defaultOptions['custom_paths'] as $customPath) {
+                $partialPaths[] = rtrim((string) $customPath, '/') . '/' . $partialsDir;
+            }
+        }
+        $partialPaths[] = rtrim((string) $this->defaultOptions['templates_path'], '/') . '/' . $partialsDir;
+
+        return new TemplateRenderer(
+            $registry,
+            new OverrideRepository(),
+            new MustacheLiteEngine($partialPaths, (string) $extension),
+            rtrim((string) $this->defaultOptions['templates_path'], '/') . '/' . $partialsDir . '/layout' . $extension
+        );
+    }
+
     /**
      * Format notification data for email delivery
      *
@@ -114,13 +145,11 @@ class EmailFormatter
     public function format(array $data, Notifiable $notifiable): array
     {
 
-        // Determine the notification type and corresponding template
-        $type = $data['type'] ?? 'default';
         $templateName = $data['template_name'] ?? $this->defaultOptions['default_template'];
 
         // Start with basic email structure
         $result = [
-            'subject' => $data['subject'] ?? 'Notification',
+            'subject' => '',
             'text_content' => '',
             'html_content' => '',
             'attachments' => $data['attachments'] ?? []
@@ -135,15 +164,8 @@ class EmailFormatter
             $result['bcc'] = $data['bcc'];
         }
 
-        // Get the template content
-        $template = $this->getTemplate($type, $templateName);
-
         // Set notification data for template rendering
         $templateData = $data['template_data'] ?? $data;
-
-        // Always include subject and title in template data
-        $templateData['subject'] = $result['subject'];
-        $templateData['title'] = $result['subject']; // Add title as an alias to subject
 
         // Neutralise URLs whose scheme isn't http(s) before they reach href slots
         // (e.g. javascript:/data: payloads in action_url / reset_url).
@@ -166,8 +188,9 @@ class EmailFormatter
         $templateData['notifiable_id'] = $notifiable->getNotifiableId();
         $templateData['notifiable_type'] = $notifiable->getNotifiableType();
 
-        // Apply the template to get HTML content
-        $result['html_content'] = $this->renderTemplate($template, $templateData);
+        $rendered = $this->renderer->render((string) $templateName, $templateData);
+        $result['subject'] = $rendered['subject'];
+        $result['html_content'] = $rendered['html'];
 
         // Generate plain text version
         $result['text_content'] = $this->htmlToText($result['html_content']);
@@ -507,61 +530,6 @@ class EmailFormatter
         $text = preg_replace('/\n\s*\n/', "\n\n", $text) ?? $text;
 
         return trim($text);
-    }
-
-    /**
-     * Register default email templates
-     */
-    private function registerDefaultTemplates(): void
-    {
-        $templatesPath = $this->defaultOptions['templates_path'];
-        $customPaths = $this->defaultOptions['custom_paths'] ?? [];
-
-        // Make sure templates directory exists
-        if (!file_exists($templatesPath)) {
-            throw BusinessLogicException::operationNotAllowed(
-                'email_template_loading',
-                "Email templates directory not found: {$templatesPath}"
-            );
-        }
-
-        // First register the default template (required)
-        $defaultTemplatePath = $templatesPath . '/default.html';
-        if (!file_exists($defaultTemplatePath)) {
-            throw BusinessLogicException::operationNotAllowed(
-                'email_template_loading',
-                "Default email template not found: {$defaultTemplatePath}"
-            );
-        }
-
-        $this->templates['default'] = $defaultTemplatePath;
-
-        // Scan for all HTML templates in the directory
-        $files = glob($templatesPath . '/*.html') ?: [];
-        foreach ($files as $file) {
-            $templateName = pathinfo($file, PATHINFO_FILENAME);
-
-            // Skip default as we already registered it
-            if ($templateName === 'default') {
-                continue;
-            }
-
-            $this->templates[$templateName] = $file;
-        }
-
-        // Allow custom_paths to override or add templates
-        foreach ($customPaths as $customPath) {
-            $customPath = rtrim($customPath, '/');
-            if (!is_dir($customPath)) {
-                continue;
-            }
-
-            $customFiles = glob($customPath . '/*.html') ?: [];
-            foreach ($customFiles as $file) {
-                $templateName = pathinfo($file, PATHINFO_FILENAME);
-                $this->templates[$templateName] = $file;
-            }
-        }
     }
 
     /**

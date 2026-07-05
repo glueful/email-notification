@@ -63,7 +63,7 @@ return [
     // allowlist stays strict.
     // Each accepts a comma-separated string (env) or an array.
     //
-    // Attachment path confinement, enforced by EmailChannel/EnhancedEmailFormatter. Attachment
+    // Attachment path confinement, enforced by EmailChannel. Attachment
     // and embedded-image paths come from notification data (potentially user-influenced); they are
     // accepted only when realpath() resolves them INSIDE one of these base directories, so a caller
     // cannot attach arbitrary host files (e.g. /etc/passwd, .env, private keys) and exfiltrate them.

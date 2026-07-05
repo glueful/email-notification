@@ -9,6 +9,10 @@ use Glueful\Database\Migrations\MigrationPriority;
 use Glueful\Extensions\Contracts\Email\EmailTemplateRegistry;
 use Glueful\Extensions\EmailNotification\Templates\BuiltInDefinitions;
 use Glueful\Extensions\EmailNotification\Templates\DefinitionRegistry;
+use Glueful\Extensions\EmailNotification\Templates\MustacheLiteEngine;
+use Glueful\Extensions\EmailNotification\Templates\OverrideRepository;
+use Glueful\Extensions\EmailNotification\Templates\TemplateEngine;
+use Glueful\Extensions\EmailNotification\Templates\TemplateRenderer;
 
 /**
  * Email Notification Service Provider
@@ -76,13 +80,24 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
                 'autowire' => true,
                 'alias' => [EmailTemplateRegistry::class],
             ],
-            EmailFormatter::class => [
-                'class' => EmailFormatter::class,
+            MustacheLiteEngine::class => [
+                'class' => MustacheLiteEngine::class,
+                'shared' => true,
+                'autowire' => true,
+                'alias' => [TemplateEngine::class],
+            ],
+            OverrideRepository::class => [
+                'class' => OverrideRepository::class,
                 'shared' => true,
                 'autowire' => true,
             ],
-            EnhancedEmailFormatter::class => [
-                'class' => EnhancedEmailFormatter::class,
+            TemplateRenderer::class => [
+                'class' => TemplateRenderer::class,
+                'shared' => true,
+                'autowire' => true,
+            ],
+            EmailFormatter::class => [
+                'class' => EmailFormatter::class,
                 'shared' => true,
                 'autowire' => true,
             ],

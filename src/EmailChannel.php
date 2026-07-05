@@ -71,10 +71,7 @@ class EmailChannel implements RichNotificationChannel
             $this->config = $config;
         }
 
-        // Default to the enhanced formatter so the createEmail() enhanced-template path
-        // (priority, embedded images, attachments, custom headers) is available. Twig stays
-        // opt-in (disabled by default), so this needs no optional twig/twig dependency.
-        $this->formatter = $formatter ?? new EnhancedEmailFormatter($this->context);
+        $this->formatter = $formatter ?? new EmailFormatter($this->context);
 
         // Initialize logger with email channel
         $this->logger = new LogManager('email');
@@ -586,43 +583,6 @@ class EmailChannel implements RichNotificationChannel
      */
     private function createEmail(array $data, string $recipientEmail): Email
     {
-        // Check if we're using EnhancedEmailFormatter
-        if (
-            $this->formatter instanceof \Glueful\Extensions\EmailNotification\EnhancedEmailFormatter
-            && isset($data['template'])
-        ) {
-            // Use enhanced formatter to build email with advanced features. The same path
-            // confinement validator is handed in so the enhanced branch funnels its
-            // attachment/embed paths through the identical check (throwing InvalidAttachmentException).
-            $email = $this->formatter->buildEmailFromTemplate(
-                $data['template'],
-                $data,
-                $this->attachmentValidator()
-            );
-
-            // Override recipient
-            $email->to($recipientEmail);
-
-            // Set from address if not already set
-            if (empty($email->getFrom())) {
-                $fromAddress = new Address(
-                    $this->config['from']['address'],
-                    $this->config['from']['name'] ?? ''
-                );
-                $email->from($fromAddress);
-            }
-
-            // cc/bcc/reply-to go through the SAME helper as the standard branch below, so the two
-            // paths can't drift. The enhanced formatter deliberately leaves these to the channel.
-            // Safe vs. policy: cc/bcc here are the SAME values firstDisallowedRecipient() validated
-            // in sendNotification() before createEmail() ran, so applying them does not bypass the
-            // domain allow/block policy.
-            $this->applyCcBccReplyTo($email, $data);
-
-            return $email;
-        }
-
-        // Standard email creation
         $email = new Email();
 
         // Set from address
@@ -635,9 +595,8 @@ class EmailChannel implements RichNotificationChannel
         // Set primary recipient
         $email->to($recipientEmail);
 
-        // cc/bcc (from data) and reply-to (from config) -- shared with the enhanced branch above
-        // via one helper so the two paths can't differ. cc/bcc were already validated against the
-        // domain policy in sendNotification() before this method ran.
+        // cc/bcc were already validated against the domain policy in sendNotification() before
+        // this method ran.
         $this->applyCcBccReplyTo($email, $data);
 
         // Set subject
