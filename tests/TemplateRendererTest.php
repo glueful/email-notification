@@ -60,6 +60,19 @@ final class TemplateRendererTest extends TestCase
         $this->renderer($connection)->render('missing', []);
     }
 
+    public function test_subjects_interpolate_raw_never_html_escaped(): void
+    {
+        // Review fix: a subject header is not HTML — 'Q&A Hub' must not
+        // arrive as 'Q&amp;A Hub'. Bodies keep escaping.
+        $connection = $this->connection();
+        (new CreateEmailTemplatesTable())->up($connection->getSchemaBuilder());
+
+        $rendered = $this->renderer($connection)->render('demo', ['name' => 'Q&A Hub']);
+
+        self::assertSame('Default Q&A Hub', $rendered['subject']);
+        self::assertStringContainsString('Q&amp;A Hub', $rendered['html']); // body still escapes
+    }
+
     public function test_override_beats_default_and_subject_is_template_owned(): void
     {
         $connection = $this->connection();

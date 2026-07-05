@@ -28,7 +28,9 @@ final class TemplateRenderer
         }
 
         $override = $this->overrides->find($key);
-        $subject = $this->engine->render($override['subject'] ?? $definition->defaultSubject, $data);
+        // Subjects are plain-text headers, not HTML — raw interpolation
+        // (render() would deliver 'Q&amp;A Hub' to inboxes).
+        $subject = $this->engine->renderPlain($override['subject'] ?? $definition->defaultSubject, $data);
         $body = $this->engine->render($override['body'] ?? $definition->defaultBody, $data);
 
         return [

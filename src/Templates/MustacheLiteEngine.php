@@ -20,6 +20,22 @@ final class MustacheLiteEngine implements TemplateEngine
      */
     public function render(string $template, array $data): string
     {
+        return $this->renderWith($template, $data, escape: true);
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    public function renderPlain(string $template, array $data): string
+    {
+        return $this->renderWith($template, $data, escape: false);
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function renderWith(string $template, array $data, bool $escape): string
+    {
         $template = preg_replace_callback(
             '/\{\{>\s+([a-zA-Z0-9_\-\.\/]+)\}\}/',
             fn (array $matches): string => $this->includePartial(trim((string) $matches[1]), $data),
@@ -49,12 +65,14 @@ final class MustacheLiteEngine implements TemplateEngine
 
         return preg_replace_callback(
             '/\{\{([^}]+)\}\}/',
-            function (array $matches) use ($data): string {
+            function (array $matches) use ($data, $escape): string {
                 $parts = explode('|', (string) $matches[1]);
                 $key = trim($parts[0]);
                 $default = isset($parts[1]) ? trim($parts[1]) : '';
 
-                return $this->escape($this->resolveValue($key, $data, $default));
+                $value = $this->resolveValue($key, $data, $default);
+
+                return $escape ? $this->escape($value) : ($value ?? '');
             },
             $template
         ) ?? $template;
