@@ -30,6 +30,9 @@
     },
     "homepage": "https://github.com/glueful/email-notification",
     "autoload": {
+        "classmap": [
+            "migrations/"
+        ],
         "psr-4": {
             "Glueful\\Extensions\\EmailNotification\\": "src/"
         }
