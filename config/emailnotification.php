@@ -11,16 +11,9 @@ declare(strict_types=1);
  */
 
 return [
-    // Templates configuration (extension-specific)
+    // Template variables merged into every render. Template definitions are registered through
+    // EmailTemplateRegistry; DB overrides live in email_templates.
     'templates' => [
-        'extension_path' => __DIR__ . '/../src/Templates/html',
-        'extension_mappings' => [
-            'verification' => 'verification',
-            'password-reset' => 'password-reset',
-            'welcome' => 'welcome',
-            'alert' => 'alert',
-            'default' => 'default',
-        ],
         'extension_variables' => [
             'extension_version' => 'dev', // Overridden at runtime from composer.json
             'powered_by' => 'Glueful EmailNotification Extension',

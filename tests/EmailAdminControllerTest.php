@@ -36,6 +36,7 @@ final class EmailAdminControllerTest extends TestCase
                 'mailers' => [
                     'smtp' => ['transport' => 'smtp', 'host' => 'smtp.env.test', 'port' => 587],
                     'null' => ['transport' => 'null', 'dsn' => 'null://null'],
+                    'api' => ['transport' => 'api', 'key' => 'env-api-key'],
                 ],
             ],
         ]);
@@ -161,6 +162,8 @@ final class EmailAdminControllerTest extends TestCase
         self::assertSame('smtp.db.test', $show['data']['settings']['mailers']['smtp']['host']);
         self::assertTrue($show['data']['password_set']);
         self::assertArrayNotHasKey('password', $show['data']['settings']['mailers']['smtp']);
+        self::assertArrayNotHasKey('key', $show['data']['settings']['mailers']['api']);
+        self::assertArrayNotHasKey('dsn', $show['data']['settings']['mailers']['null']);
         self::assertNotSame('secret', $repository->get('password'));
     }
 }

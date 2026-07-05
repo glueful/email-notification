@@ -92,8 +92,17 @@ final class SettingsController
     private function redactedSettings(): array
     {
         $settings = $this->settings->effectiveConfig();
-        if (isset($settings['mailers']['smtp']) && is_array($settings['mailers']['smtp'])) {
-            unset($settings['mailers']['smtp']['password']);
+        if (isset($settings['mailers']) && is_array($settings['mailers'])) {
+            foreach ($settings['mailers'] as $name => $mailer) {
+                if (!is_array($mailer)) {
+                    continue;
+                }
+
+                foreach (['password', 'key', 'secret', 'token', 'dsn'] as $secretKey) {
+                    unset($mailer[$secretKey]);
+                }
+                $settings['mailers'][$name] = $mailer;
+            }
         }
 
         return $settings;

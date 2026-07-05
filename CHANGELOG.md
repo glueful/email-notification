@@ -6,6 +6,30 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Added
+- Definition-first email templates backed by `glueful/extension-contracts`. Templates are now
+  registered through `EmailTemplateRegistry`, can be overridden in the `email_templates` table,
+  and are managed through the new `/email/templates` admin API guarded by
+  `email.templates.manage`.
+- Database-backed email transport settings in `email_settings`, with per-send resolution over the
+  existing `services.mail` defaults. SMTP passwords are encrypted at rest and API responses expose
+  only `password_set`.
+- `/email/settings` admin API for reading, saving, and testing the effective email settings.
+
+### Changed
+- Email subjects are now template-owned and rendered through the same placeholder engine as email
+  bodies. Send callers choose a registered template key and provide data; they no longer pass a
+  trusted subject string for the rendered message.
+- `EmailChannel` resolves settings on every send, so DB changes apply to the next message without a
+  restart or channel rebuild.
+
+### Removed
+- Removed the enhanced/payload-selected template branch. Payload-supplied `template` names no
+  longer select files; all rendering funnels through registered template keys and unknown keys fail
+  loudly.
+- Removed the retired template path/mapping config model. File-guessing via extension mappings and
+  custom paths is replaced by registry definitions plus DB overrides.
+
 ## [1.10.0] - 2026-06-13
 
 ### Security

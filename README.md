@@ -429,173 +429,101 @@ $emailChannel->isAvailable(); // Returns true if transport is configured
 
 ## Template System
 
-The extension provides a flexible template system with built-in responsive templates and support for custom templates.
+The extension provides registered, definition-first templates. Installed extensions register
+template definitions through `Glueful\Extensions\Contracts\Email\EmailTemplateRegistry`; this
+extension owns the built-ins and stores operator overrides in the `email_templates` table. Absence
+of an override means "use the registered default"; reset deletes the row.
 
 ### Built-in Templates
 
-The extension includes 6 professionally designed, responsive email templates:
+The extension registers 6 responsive built-in definitions:
 
-#### 1. Default Template (`default.html`)
+#### 1. Default (`default`)
 - **Use Case**: General notifications, alerts, and multi-purpose emails
 - **Features**: OTP support, action buttons, customizable styling
-- **Variables**: `{{subject}}`, `{{message}}`, `{{action_url}}`, `{{action_text}}`, `{{otp_code}}`
+- **Variables**: `{{name}}`, `{{message}}`, `{{action_url}}`, `{{action_text}}`, `{{otp}}`, `{{expiry_minutes}}`
 
-#### 2. Welcome Template (`welcome.html`)
+#### 2. Welcome (`welcome`)
 - **Use Case**: User onboarding and welcome emails
 - **Features**: Friendly greeting, getting started guidance
-- **Variables**: `{{user_name}}`, `{{app_name}}`, `{{welcome_message}}`, `{{get_started_url}}`
+- **Variables**: `{{name}}`, `{{app_name}}`, `{{message}}`, `{{action_url}}`, `{{action_text}}`
 
-#### 3. Alert Template (`alert.html`) 
+#### 3. Alert (`alert`)
 - **Use Case**: Security alerts, important notifications, warnings
 - **Features**: Attention-grabbing design, urgency indicators
-- **Variables**: `{{alert_type}}`, `{{message}}`, `{{timestamp}}`, `{{action_required}}`
+- **Variables**: `{{message}}`, `{{details}}`, `{{action_url}}`
 
-#### 4. Password Reset Template (`password-reset.html`)
+#### 4. Password Reset (`password-reset`)
 - **Use Case**: Password reset functionality
 - **Features**: Secure reset process, expiry warnings
-- **Variables**: `{{user_name}}`, `{{reset_url}}`, `{{expiry_time}}`, `{{security_tip}}`
+- **Variables**: `{{name}}`, `{{otp}}`, `{{expiry_minutes}}`, `{{reset_url}}`
 
-#### 5. Verification Template (`verification.html`)
+#### 5. Verification (`verification`)
 - **Use Case**: Account verification, email confirmation
 - **Features**: Verification codes, confirmation links
-- **Variables**: `{{user_name}}`, `{{verification_code}}`, `{{verification_url}}`, `{{expiry_time}}`
+- **Variables**: `{{otp}}`, `{{expiry_minutes}}`
 
-#### 6. Two-Factor PIN Template (`two-factor-pin.html`)
+#### 6. Two-Factor PIN (`two-factor-pin`)
 - **Use Case**: Two-factor authentication one-time codes
 - **Features**: Prominent PIN display, expiry warning
-- **Variables**: `{{user_name}}`, `{{otp}}`, `{{expiry_minutes}}`
+- **Variables**: `{{pin}}`, `{{ttl_minutes}}`
 
-### Custom Templates
+### Registering Templates From Another Extension
 
-You can add your own email templates and customize the template system through configuration.
-
-#### Template Configuration
-
-Configure custom templates in `config/services.php`:
+Extensions should register definitions during boot by soft-resolving the registry. Consumers do not
+bind defaults under the shared contract; only the email-notification extension binds the registry.
 
 ```php
-'mail' => [
-    'templates' => [
-        // Primary template directory (optional override). By default, the
-        // extension's own templates are used. To override explicitly:
-        // 'path' => base_path('vendor/glueful/email-notification/src/Templates/html'),
-        
-        // Additional custom template directories (checked in order)
-        'custom_paths' => [
-            // Framework's mail templates
-            dirname(__DIR__) . '/resources/mail',
-            // Your custom templates directory
-            dirname(__DIR__) . '/templates/email',
+use Glueful\Extensions\Contracts\Email\EmailTemplateDefinition;
+use Glueful\Extensions\Contracts\Email\EmailTemplatePlaceholder;
+use Glueful\Extensions\Contracts\Email\EmailTemplateRegistry;
+
+if ($container->has(EmailTemplateRegistry::class)) {
+    $container->get(EmailTemplateRegistry::class)->register(new EmailTemplateDefinition(
+        key: 'lemma.comment-reply',
+        label: 'Comment reply',
+        description: 'Sent when a comment receives a reply.',
+        defaultSubject: 'New reply from {{author}}',
+        defaultBody: '<p>{{author}} replied: {{excerpt}}</p>',
+        placeholders: [
+            new EmailTemplatePlaceholder('author', 'Reply author display name.', 'Ada'),
+            new EmailTemplatePlaceholder('excerpt', 'Short comment excerpt.', 'Looks good.'),
         ],
-        
-        // Layout and partials
-        'default_layout' => env('MAIL_DEFAULT_LAYOUT', 'layout'),
-        'partials_directory' => 'partials',
-        
-        // Template file extension
-        'extension' => '.html',
-        
-        // Custom template mappings (aliases)
-        'mappings' => [
-            // Map friendly names to actual template files
-            'user_welcome' => 'onboarding/welcome',
-            'password_reset' => 'auth/reset-password',
-            'invoice' => 'billing/invoice-generated',
-        ],
-        
-        // Global variables available to all templates
-        'global_variables' => [
-            'app_name' => env('APP_NAME', 'Glueful Application'),
-            'app_url' => env('BASE_URL', 'https://example.com'),
-            'support_email' => env('MAIL_SUPPORT_EMAIL', 'support@example.com'),
-            'logo_url' => env('MAIL_LOGO_URL', 'https://brand.glueful.com/logo.png'),
-            'current_year' => date('Y'),
-            'company_name' => env('COMPANY_NAME', 'Your Company'),
-        ],
-    ],
-],
+        owner: 'glueful/lemma',
+    ));
+}
 ```
 
-#### Creating Custom Templates
+### Admin API
 
-1. **Create Template Directory Structure**:
-   ```
-   resources/mail/
-   ├── custom-welcome.html
-   ├── invoice.html
-   ├── newsletter.html
-   └── partials/
-       ├── layout.html
-       ├── header.html
-       └── footer.html
-   ```
+All endpoints require `auth` plus `email.templates.manage` through the `email_permission`
+middleware:
 
-> **Override behavior**: if you set `services.mail.templates.custom_paths`, the extension will load templates from those paths first. Only templates or partials you provide are overridden; everything else falls back to the built‑in templates.
+- `GET /email/templates`
+- `PUT /email/templates/{key}`
+- `DELETE /email/templates/{key}`
+- `POST /email/templates/{key}/test`
+- `GET /email/settings`
+- `PUT /email/settings`
+- `POST /email/settings/test`
 
-2. **Custom Template Example** (`resources/mail/invoice.html`):
-   ```html
-   <!DOCTYPE html>
-   <html>
-   <head>
-       <meta charset="UTF-8">
-       <title>{{subject}}</title>
-       <style>
-           .invoice-header { background: #f8f9fa; padding: 20px; }
-           .invoice-details { margin: 20px 0; }
-           .total { font-weight: bold; font-size: 18px; }
-       </style>
-   </head>
-   <body>
-       <div class="invoice-header">
-           <h1>{{app_name}}</h1>
-           <h2>Invoice #{{invoice_number}}</h2>
-       </div>
-       
-       <div class="invoice-details">
-           <p>Dear {{customer_name}},</p>
-           <p>Your invoice is ready for review.</p>
-           
-           <table>
-               <tr><td>Invoice Number:</td><td>{{invoice_number}}</td></tr>
-               <tr><td>Amount:</td><td class="total">${{amount}}</td></tr>
-               <tr><td>Due Date:</td><td>{{due_date}}</td></tr>
-           </table>
-           
-           <p><a href="{{invoice_url}}">View Invoice Online</a></p>
-       </div>
-       
-       {{> footer}}
-   </body>
-   </html>
-   ```
+Template subjects are template-owned and rendered with the same placeholder engine as bodies.
+Unknown keys fail loudly; payload-supplied template names no longer select files.
 
-3. **Using Custom Templates**:
-   ```php
-   // Use by filename
-   $notificationService->sendWithTemplate(
-       'invoice_generated',
-       $customer,
-       'invoice', // Uses resources/mail/invoice.html
-       [
-           'invoice_number' => 'INV-2024-001',
-           'customer_name' => $customer->name,
-           'amount' => '299.99',
-           'due_date' => '2024-07-15',
-           'invoice_url' => 'https://app.com/invoices/123',
-       ]
-   );
-   
-   // Use with mapping alias
-   $notificationService->sendWithTemplate(
-       'user_registration',
-       $user,
-       'user_welcome', // Maps to onboarding/welcome.html via template mappings
-       [
-           'user_name' => $user->name,
-           'activation_url' => $activationUrl,
-       ]
-   );
-   ```
+### Settings Precedence
+
+Transport settings resolve per send: DB row -> `services.mail` config/env fallback. SMTP password
+rows are encrypted at rest with `EncryptionService` using AAD `email.smtp_password`, and API
+responses expose only `password_set`. Deployment-owned policy config (`security.allowed_domains`,
+`security.blocked_domains`, attachment confinement, debug/logging) remains in
+`config/emailnotification.php` and is not DB-managed.
+
+#### Overriding Template Content
+
+Operators override a registered template by saving a `subject` and `body` through
+`PUT /email/templates/{key}`. Resetting a template deletes the override row and returns the
+definition to its registered defaults. The renderer validates unbalanced `{{#if}}` blocks on save,
+and all interpolation keeps the escaping rules below.
 
 #### Template Features
 
