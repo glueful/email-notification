@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
-## [Unreleased]
+## [1.11.0] - 2026-07-05
 
 ### Added
 - Definition-first email templates backed by `glueful/extension-contracts`. Templates are now
@@ -15,11 +15,23 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
   existing `services.mail` defaults. SMTP passwords are encrypted at rest and API responses expose
   only `password_set`.
 - `/email/settings` admin API for reading, saving, and testing the effective email settings.
+- Real test-sends: `POST /email/templates/{key}/test` and `POST /email/settings/test` send an
+  actual message to an operator-supplied (validated) address through the normal formatter path —
+  template test-sends render the SAVED override (or default) with the definition's placeholder
+  samples, and the domain policy applies exactly as in production. `transport_misconfigured`
+  maps to 422; other transport failures to 502.
+- `email.templates.manage` permission declared via `ServiceProvider::permissions()` (Aegis
+  catalog sync), enforced on every route by the new `email_permission` middleware — the
+  extension's first HTTP surface.
+- `EmailChannel::createTransport()` is now protected (the transport seam): tests can subclass
+  with a capturing transport and assert the actual message content sent.
 
 ### Changed
 - Email subjects are now template-owned and rendered through the same placeholder engine as email
-  bodies. Send callers choose a registered template key and provide data; they no longer pass a
-  trusted subject string for the rendered message.
+  bodies — via the new `TemplateEngine::renderPlain()` (identical pipeline, NO HTML escaping on
+  interpolation: a subject header is plain text, so `Q&A Hub` never arrives as `Q&amp;A Hub`).
+  Send callers choose a registered template key and provide data; they no longer pass a trusted
+  subject string for the rendered message.
 - `EmailChannel` resolves settings on every send, so DB changes apply to the next message without a
   restart or channel rebuild.
 
