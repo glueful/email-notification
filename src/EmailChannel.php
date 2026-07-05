@@ -489,7 +489,12 @@ class EmailChannel implements RichNotificationChannel
      * @return TransportInterface Configured transport instance
      * @throws TransportMisconfiguredException If the mailer configuration is missing or invalid
      */
-    private function createTransport(): TransportInterface
+    /**
+     * Protected as the transport seam: tests subclass with a capturing
+     * transport to assert the ACTUAL message content sent (not just a
+     * success boolean).
+     */
+    protected function createTransport(): TransportInterface
     {
         // Get the default mailer configuration
         $defaultMailer = $this->config['default'] ?? 'smtp';

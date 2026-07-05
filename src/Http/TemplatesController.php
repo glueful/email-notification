@@ -99,17 +99,19 @@ final class TemplatesController
             $samples[$placeholder->name] = $placeholder->sample;
         }
 
-        $rendered = $this->renderer->render($key, $samples);
-
-        // A REAL send — not a render preview: sample data through the live
-        // channel, with the domain policy and transport state applying exactly
-        // as they would for production mail.
+        // A REAL send through the NORMAL formatter path — template_name +
+        // sample data, so the channel renders THIS template (including any
+        // saved override) exactly as production mail would. Passing
+        // pre-rendered content would be discarded: EmailFormatter::format()
+        // always renders template_name ?? default.
         $result = $this->channel->sendNotification(new TestRecipient($to), [
-            'subject' => $rendered['subject'],
-            'html_content' => $rendered['html'],
-            'text_content' => strip_tags($rendered['html']),
+            'template_name' => $key,
+            'template_data' => $samples,
             'type' => 'email_template_test',
         ]);
+
+        // Echo the rendered subject for the UI (same renderer, same values).
+        $rendered = $this->renderer->render($key, $samples);
 
         if (!$result->success) {
             $status = $result->errorCode === 'transport_misconfigured' ? 422 : 502;

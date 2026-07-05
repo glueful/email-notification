@@ -9,7 +9,8 @@ use Glueful\Database\Connection;
 use Glueful\Encryption\EncryptionService;
 use Glueful\Extensions\EmailNotification\Database\Migrations\CreateEmailSettingsTable;
 use Glueful\Extensions\EmailNotification\Database\Migrations\CreateEmailTemplatesTable;
-use Glueful\Extensions\EmailNotification\EmailChannel;
+use Glueful\Extensions\EmailNotification\EmailFormatter;
+use Glueful\Extensions\EmailNotification\Tests\Support\CapturingEmailChannel;
 use Glueful\Extensions\EmailNotification\Http\SettingsController;
 use Glueful\Extensions\EmailNotification\Http\TemplatesController;
 use Glueful\Extensions\EmailNotification\Settings\EmailSettings;
@@ -24,6 +25,8 @@ use Symfony\Component\HttpFoundation\Request;
 
 final class EmailAdminControllerTest extends TestCase
 {
+    private CapturingEmailChannel $channel;
+
     private const APP_KEY = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
     private function context(): ApplicationContext
@@ -72,21 +75,23 @@ final class EmailAdminControllerTest extends TestCase
         $engine = new MustacheLiteEngine([__DIR__ . '/../src/Templates/html/partials']);
         $renderer = new TemplateRenderer($registry, $overrides, $engine);
         $settingsRepository = new SettingsRepository($connection, new EncryptionService($context));
-        // Null-transport channel: test-sends exercise the REAL send path
-        // (policy + transport) without touching a network.
-        $channel = new EmailChannel($context, [
+        // Capturing channel WITH the harness renderer: test-sends exercise the
+        // REAL send path (formatter -> renderer incl. DB overrides -> policy ->
+        // transport), and tests assert the message content that reached the
+        // transport.
+        $this->channel = new CapturingEmailChannel($context, [
             'default' => 'null',
             'mailers' => ['null' => ['transport' => 'null', 'dsn' => 'null://null']],
             'from' => ['address' => 'noreply@app.test', 'name' => 'App'],
-        ]);
+        ], new EmailFormatter($context, [], [], $renderer));
 
         return [
-            new TemplatesController($registry, $overrides, $engine, $renderer, $channel),
+            new TemplatesController($registry, $overrides, $engine, $renderer, $this->channel),
             new SettingsController(
                 $context,
                 $settingsRepository,
                 new EmailSettings($context, $settingsRepository),
-                $channel,
+                $this->channel,
             ),
             $settingsRepository,
         ];
@@ -193,7 +198,8 @@ final class EmailAdminControllerTest extends TestCase
         );
         self::assertSame(422, $bad->getStatusCode());
 
-        // A REAL send through the (null) transport: success + sent_to echoed.
+        // A REAL send: the transport receives THIS template rendered with its
+        // placeholder SAMPLES (not the default template, not pre-rendered noise).
         $ok = $templates->testSend(
             $this->jsonRequest('POST', '/email/templates/verification/test', ['to' => 'operator@app.test']),
             'verification'
@@ -201,7 +207,28 @@ final class EmailAdminControllerTest extends TestCase
         self::assertSame(200, $ok->getStatusCode());
         $data = $this->json($ok)['data'];
         self::assertSame('operator@app.test', $data['sent_to']);
-        self::assertNotSame('', (string) $data['subject']); // sample-rendered subject travels back
+
+        self::assertCount(1, $this->channel->sent);
+        $message = $this->channel->sent[0];
+        self::assertSame('Verify your Glueful email', $message->getSubject()); // sample app_name
+        self::assertStringContainsString('123456', (string) $message->getHtmlBody()); // sample otp
+        self::assertSame('operator@app.test', $message->getTo()[0]->getAddress());
+
+        // The button's claim is "test MY template": a saved override is what sends.
+        $templates->save(
+            $this->jsonRequest('PUT', '/email/templates/verification', [
+                'subject' => 'Custom verify {{app_name}}',
+                'body' => '<p>Code {{otp}}</p>',
+            ]),
+            'verification'
+        );
+        $templates->testSend(
+            $this->jsonRequest('POST', '/email/templates/verification/test', ['to' => 'operator@app.test']),
+            'verification'
+        );
+        self::assertCount(2, $this->channel->sent);
+        self::assertSame('Custom verify Glueful', $this->channel->sent[1]->getSubject());
+        self::assertStringContainsString('Code 123456', (string) $this->channel->sent[1]->getHtmlBody());
     }
 
     public function test_settings_test_send_actually_sends_and_validates_to(): void
@@ -214,5 +241,12 @@ final class EmailAdminControllerTest extends TestCase
         $ok = $settings->testSend($this->jsonRequest('POST', '/email/settings/test', ['to' => 'operator@app.test']));
         self::assertSame(200, $ok->getStatusCode());
         self::assertSame('operator@app.test', $this->json($ok)['data']['sent_to']);
+
+        // The transport receives the actual plain test message.
+        self::assertCount(1, $this->channel->sent);
+        self::assertStringContainsString(
+            'confirming your email settings work',
+            (string) $this->channel->sent[0]->getHtmlBody(),
+        );
     }
 }

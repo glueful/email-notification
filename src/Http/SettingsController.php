@@ -80,12 +80,14 @@ final class SettingsController
             return Response::error('A valid `to` email address is required.', 422);
         }
 
-        // A REAL send through the stored effective settings — the point of the
-        // button is proving the transport works, not that the config is readable.
+        // A REAL send through the stored effective settings, via the NORMAL
+        // formatter path (the registered 'default' template) — pre-rendered
+        // content would be discarded by EmailFormatter::format().
         $result = $this->channel->sendNotification(new TestRecipient($to), [
-            'subject' => 'Test email',
-            'html_content' => '<p>This is a test email confirming your email settings work.</p>',
-            'text_content' => 'This is a test email confirming your email settings work.',
+            'template_name' => 'default',
+            'template_data' => [
+                'message' => 'This is a test email confirming your email settings work.',
+            ],
             'type' => 'email_settings_test',
         ]);
 
