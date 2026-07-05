@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Glueful\Extensions\EmailNotification;
 
 use Glueful\Bootstrap\ApplicationContext;
+use Glueful\Extensions\Contracts\Email\EmailTemplateRegistry;
+use Glueful\Extensions\EmailNotification\Templates\BuiltInDefinitions;
+use Glueful\Extensions\EmailNotification\Templates\DefinitionRegistry;
 
 /**
  * Email Notification Service Provider
@@ -66,6 +69,12 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
     public static function services(): array
     {
         return [
+            DefinitionRegistry::class => [
+                'class' => DefinitionRegistry::class,
+                'shared' => true,
+                'autowire' => true,
+                'alias' => [EmailTemplateRegistry::class],
+            ],
             EmailFormatter::class => [
                 'class' => EmailFormatter::class,
                 'shared' => true,
@@ -115,6 +124,13 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
      */
     public function boot(ApplicationContext $context): void
     {
+        if ($this->app->has(EmailTemplateRegistry::class)) {
+            $registry = $this->app->get(EmailTemplateRegistry::class);
+            if ($registry instanceof EmailTemplateRegistry) {
+                $registry->register(...BuiltInDefinitions::all());
+            }
+        }
+
         // Register the email channel and its before/after-send hooks through the framework's
         // extension helpers (1.51.0+). These resolve the shared container ChannelManager /
         // NotificationDispatcher and no-op if the notification subsystem isn't present — this is
