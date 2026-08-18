@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Glueful\Extensions\EmailNotification;
 
 use Glueful\Bootstrap\ApplicationContext;
-use Glueful\Database\Migrations\MigrationPriority;
 use Glueful\Extensions\Contracts\Email\EmailTemplateRegistry;
 use Glueful\Extensions\EmailNotification\Http\RequireEmailPermission;
 use Glueful\Extensions\EmailNotification\Http\SettingsController;
@@ -172,7 +171,7 @@ class EmailNotificationServiceProvider extends \Glueful\Extensions\ServiceProvid
      */
     public function boot(ApplicationContext $context): void
     {
-        $this->loadMigrationsFrom(__DIR__ . '/../migrations', MigrationPriority::DEFAULT, 'glueful/email-notification');
+        // Migrations are declared by the composer manifest (extra.glueful.migrations).
         $this->loadRoutesFrom(__DIR__ . '/../routes.php');
 
         if ($this->app->has(EmailTemplateRegistry::class)) {

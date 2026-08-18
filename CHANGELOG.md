@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [Unreleased]
+
+## [1.13.0] - 2026-08-17
+
+### Added
+- Declares the Glueful schema manifest (migration descriptors, requires.extensions, structural
+  verifier); requires framework >=1.79.0 for schema-on-enable participation. Migrations are now
+  registered by the manifest, not by provider boot.
+
 ## [1.12.0] - 2026-07-05
 
 ### Added
