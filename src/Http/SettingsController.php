@@ -16,6 +16,7 @@ final class SettingsController
 {
     private const KEYS = [
         'mailer',
+        'transport',
         'host',
         'port',
         'username',
@@ -50,6 +51,17 @@ final class SettingsController
         }
         if (isset($data['port']) && $data['port'] !== '' && !is_numeric($data['port'])) {
             $errors['port'] = 'Port must be numeric.';
+        }
+        // A transport belongs to one mailer: brevo+smtp is Brevo's, not SendGrid's. Validate it
+        // against the mailer being saved, else the one already stored.
+        if (isset($data['transport']) && is_string($data['transport']) && $data['transport'] !== '') {
+            $mailer = is_string($data['mailer'] ?? null) && $data['mailer'] !== ''
+                ? $data['mailer']
+                : (string) ($this->settings->effectiveConfig()['default'] ?? 'smtp');
+            $offered = $this->settings->capabilities()[$mailer]['transports'] ?? [];
+            if (!in_array($data['transport'], $offered, true)) {
+                $errors['transport'] = 'That mailer does not send through this transport.';
+            }
         }
         if ($errors !== []) {
             return Response::validation($errors);
@@ -107,6 +119,9 @@ final class SettingsController
         return [
             'settings' => $this->redactedSettings(),
             'password_set' => ($this->repository->get('password') ?? '') !== '',
+            // What each mailer takes, so a form shows the boxes that mean something for the one
+            // chosen: an API bridge has no host, port or encryption.
+            'capabilities' => $this->settings->capabilities(),
         ];
     }
 

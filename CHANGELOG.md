@@ -6,6 +6,22 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-09-23
+
+### Added
+- **The settings API says what each mailer takes.** `GET /email/settings` carries `capabilities`:
+  per mailer, the transports it offers, the settings each of those reads, and whether a keyed
+  transport has its key. A form built for SMTP showed empty Host, Port and Encryption boxes
+  against a provider bridge that has none of them.
+- **A mailer that sends two ways can be told which to use.** `transport` is a saved setting,
+  applied to the mailer that offers it — Brevo through its API (`brevo+api`) or its SMTP relay
+  (`brevo+smtp`). A transport the chosen mailer does not offer is refused with 422.
+
+### Fixed
+- **Credentials reach the mailer whose transport reads them.** The stored username and password
+  were only ever applied to the `smtp` mailer, so a credential saved against `brevo+smtp` did
+  nothing. The stored values now apply to exactly the settings the effective transport reads.
+
 ## [1.13.0] - 2026-08-17
 
 ### Added

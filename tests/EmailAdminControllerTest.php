@@ -41,6 +41,7 @@ final class EmailAdminControllerTest extends TestCase
                     'smtp' => ['transport' => 'smtp', 'host' => 'smtp.env.test', 'port' => 587],
                     'null' => ['transport' => 'null', 'dsn' => 'null://null'],
                     'api' => ['transport' => 'api', 'key' => 'env-api-key'],
+                    'brevo' => ['transport' => 'brevo+api', 'key' => 'env-brevo-key'],
                 ],
             ],
         ]);
@@ -307,5 +308,48 @@ final class EmailAdminControllerTest extends TestCase
         // Unknown partial keys stay 404; empty body 422s.
         self::assertSame(404, $templates->save($this->jsonRequest('PUT', '/x', ['body' => 'x']), 'partial.nope')->getStatusCode());
         self::assertSame(422, $templates->save($this->jsonRequest('PUT', '/x', ['body' => '  ']), 'partial.header')->getStatusCode());
+    }
+
+    public function test_the_payload_says_what_each_mailer_takes(): void
+    {
+        [, $settings] = $this->controllers();
+
+        $show = $this->json($settings->show(new Request()))['data'];
+
+        self::assertSame(['smtp'], $show['capabilities']['smtp']['transports']);
+        self::assertSame(
+            ['host', 'port', 'encryption', 'username', 'password'],
+            $show['capabilities']['smtp']['fields'],
+        );
+        // Brevo sends through its API or its SMTP relay; the API one takes no host.
+        self::assertSame(['brevo+api', 'brevo+smtp'], $show['capabilities']['brevo']['transports']);
+        self::assertSame([], $show['capabilities']['brevo']['fields_by_transport']['brevo+api']);
+        self::assertTrue($show['capabilities']['brevo']['key_set']);
+    }
+
+    public function test_a_transport_can_be_saved_for_a_mailer_that_offers_it(): void
+    {
+        [, $settings] = $this->controllers();
+
+        $save = $settings->save($this->jsonRequest('PUT', '/email/settings', [
+            'mailer' => 'brevo',
+            'transport' => 'brevo+smtp',
+        ]));
+        self::assertSame(200, $save->getStatusCode(), (string) $save->getContent());
+
+        $show = $this->json($settings->show(new Request()))['data'];
+        self::assertSame('brevo+smtp', $show['settings']['mailers']['brevo']['transport']);
+    }
+
+    public function test_a_transport_the_mailer_does_not_offer_is_refused(): void
+    {
+        [, $settings] = $this->controllers();
+
+        $save = $settings->save($this->jsonRequest('PUT', '/email/settings', [
+            'mailer' => 'brevo',
+            'transport' => 'sendgrid+api',
+        ]));
+
+        self::assertSame(422, $save->getStatusCode());
     }
 }
