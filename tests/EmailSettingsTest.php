@@ -168,6 +168,26 @@ final class EmailSettingsTest extends TestCase
         self::assertSame('smtp', $config['mailers']['smtp']['transport']);
     }
 
+    public function test_the_credentials_reach_the_mailer_whose_transport_reads_them(): void
+    {
+        // brevo+smtp sends through Brevo's relay with the SMTP credentials — so the username and
+        // password the admin shows against it must land on the brevo mailer, not only on smtp.
+        $context = $this->context();
+        $connection = $this->connection();
+        $repository = $this->repository($connection, $context);
+        $repository->set('mailer', 'brevo');
+        $repository->set('transport', 'brevo+smtp');
+        $repository->set('username', 'db-user');
+        $repository->set('password', 'db-pass');
+
+        $config = (new EmailSettings($context, $repository))->effectiveConfig();
+
+        self::assertSame('db-user', $config['mailers']['brevo']['username']);
+        self::assertSame('db-pass', $config['mailers']['brevo']['password']);
+        // Only what the transport reads: brevo+smtp knows its own relay, so no host is planted.
+        self::assertArrayNotHasKey('host', $config['mailers']['brevo']);
+    }
+
     public function test_a_transport_the_selected_mailer_does_not_offer_is_ignored(): void
     {
         $context = $this->context();

@@ -66,26 +66,51 @@ final class EmailSettings
         $config['logo_url'] = $this->value('logo_url', (string) ($base['logo_url'] ?? ''));
 
         // The chosen mailer may offer more than one way out (Brevo: its API, or its SMTP relay).
-        // A stored transport applies only to the mailer that offers it; anything else is ignored.
+        // A stored transport applies only to the mailer that offers it; anything else falls back
+        // to whatever the mailer's own config sends through.
+        $chosen = is_array($mailers[$mailer] ?? null) ? $mailers[$mailer] : [];
         $transport = $this->value('transport', '');
-        if ($transport !== '' && in_array($transport, self::transportsFor($mailer, $mailers), true)) {
-            $chosen = is_array($mailers[$mailer] ?? null) ? $mailers[$mailer] : [];
-            $config['mailers'][$mailer] = array_replace($chosen, ['transport' => $transport]);
+        if ($transport === '' || !in_array($transport, self::transportsFor($mailer, $mailers), true)) {
+            $transport = (string) ($chosen['transport'] ?? '');
+        }
+        if ($transport !== '') {
+            // Whichever way out it is, the settings that transport reads come from the admin —
+            // credentials shown against brevo+smtp have to reach the brevo mailer.
+            $config['mailers'][$mailer] = $this->withStoredFields(
+                array_replace($chosen, ['transport' => $transport]),
+                $transport,
+            );
             $mailers = $config['mailers'];
         }
 
         $smtpBase = is_array($mailers['smtp'] ?? null) ? $mailers['smtp'] : [];
         $config['mailers'] = $mailers;
-        $config['mailers']['smtp'] = array_replace($smtpBase, [
-            'transport' => $smtpBase['transport'] ?? 'smtp',
-            'host' => $this->value('host', (string) ($smtpBase['host'] ?? '')),
-            'port' => (int) $this->value('port', (string) ($smtpBase['port'] ?? 587)),
-            'username' => $this->value('username', (string) ($smtpBase['username'] ?? '')),
-            'password' => $this->password((string) ($smtpBase['password'] ?? '')),
-            'encryption' => $this->value('encryption', (string) ($smtpBase['encryption'] ?? '')),
-        ]);
+        $config['mailers']['smtp'] = $this->withStoredFields(
+            array_replace($smtpBase, ['transport' => $smtpBase['transport'] ?? 'smtp']),
+            'smtp',
+        );
 
         return $config;
+    }
+
+    /**
+     * Overlay the stored values for the settings this transport actually reads. A setting the
+     * transport ignores is left alone — an API bridge gains no host from a form built for SMTP.
+     *
+     * @param array<string, mixed> $mailer
+     * @return array<string, mixed>
+     */
+    private function withStoredFields(array $mailer, string $transport): array
+    {
+        foreach (self::FIELDS[$transport] ?? [] as $field) {
+            $mailer[$field] = match ($field) {
+                'port' => (int) $this->value('port', (string) ($mailer['port'] ?? 587)),
+                'password' => $this->password((string) ($mailer['password'] ?? '')),
+                default => $this->value($field, (string) ($mailer[$field] ?? '')),
+            };
+        }
+
+        return $mailer;
     }
 
     /**
