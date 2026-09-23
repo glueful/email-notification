@@ -61,6 +61,12 @@ final class EmailSettingsTest extends TestCase
                         'password' => 'env-pass',
                         'encryption' => 'tls',
                     ],
+                    'brevo' => [
+                        'transport' => 'brevo+api',
+                        'key' => 'env-key',
+                        'username' => 'env-user',
+                        'password' => 'env-pass',
+                    ],
                     'null' => ['transport' => 'null', 'dsn' => 'null://null'],
                 ],
             ],
@@ -145,5 +151,54 @@ final class EmailSettingsTest extends TestCase
 
         self::assertFalse($result->success);
         self::assertSame('blocked_domain', $result->errorCode);
+    }
+
+    public function test_a_stored_transport_applies_to_the_selected_mailer(): void
+    {
+        $context = $this->context();
+        $connection = $this->connection();
+        $repository = $this->repository($connection, $context);
+        $repository->set('mailer', 'brevo');
+        $repository->set('transport', 'brevo+smtp');
+
+        $config = (new EmailSettings($context, $repository))->effectiveConfig();
+
+        self::assertSame('brevo+smtp', $config['mailers']['brevo']['transport']);
+        // The smtp mailer keeps its own transport whatever the selected one does.
+        self::assertSame('smtp', $config['mailers']['smtp']['transport']);
+    }
+
+    public function test_a_transport_the_selected_mailer_does_not_offer_is_ignored(): void
+    {
+        $context = $this->context();
+        $connection = $this->connection();
+        $repository = $this->repository($connection, $context);
+        $repository->set('mailer', 'brevo');
+        $repository->set('transport', 'sendgrid+api');
+
+        $config = (new EmailSettings($context, $repository))->effectiveConfig();
+
+        self::assertSame('brevo+api', $config['mailers']['brevo']['transport']);
+    }
+
+    public function test_capabilities_say_what_each_mailer_takes(): void
+    {
+        $context = $this->context();
+        $connection = $this->connection();
+        $capabilities = (new EmailSettings($context, $this->repository($connection, $context)))->capabilities();
+
+        self::assertSame(['smtp'], $capabilities['smtp']['transports']);
+        self::assertSame(
+            ['host', 'port', 'encryption', 'username', 'password'],
+            $capabilities['smtp']['fields'],
+        );
+        self::assertSame(['brevo+api', 'brevo+smtp'], $capabilities['brevo']['transports']);
+        // The API transport is keyed, not hosted; the SMTP one takes the credentials.
+        self::assertSame([], $capabilities['brevo']['fields_by_transport']['brevo+api']);
+        self::assertSame(
+            ['username', 'password'],
+            $capabilities['brevo']['fields_by_transport']['brevo+smtp'],
+        );
+        self::assertTrue($capabilities['brevo']['key_set']);
     }
 }
